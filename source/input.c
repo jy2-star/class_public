@@ -763,9 +763,14 @@ int input_shooting(struct file_content * pfc,
              errmsg,
              "You can only enter one of 'sigma8' or 'S8'.");
   if (flag1 == _TRUE_ || flag2 == _TRUE_) {
+    /* Disable shooting for SCF (we provide ICs manually) */
+  if (pba->has_scf == _TRUE_) {
+    *has_shooting = _FALSE_;
+  }
+  else {
     /* Tell the main function that shooting indeed has occured */
     *has_shooting=_TRUE_;
-
+  }
     /* Create file content structure with additional entries */
     class_call(parser_extend(pfc, 1, errmsg),
                errmsg,errmsg);
@@ -3353,9 +3358,36 @@ int input_read_parameters_species(struct file_content * pfc,
       }
     }
 
+    /* ---- Read thawing cos^2 potential parameters ---- */
+
+    pba->scf_M4 = 1e-20;
+    pba->scf_f  = 1.0;
+
+    class_call(parser_read_double(pfc,
+                              "scf_M4",
+                              &pba->scf_M4,
+                              &flag1,
+                              errmsg),
+              errmsg,
+              errmsg);
+
+    class_call(parser_read_double(pfc,
+                              "scf_f",
+                              &pba->scf_f,
+                              &flag1,
+                              errmsg),
+              errmsg,
+              errmsg);
+
+    printf("DEBUG INPUT: M4=%e  f=%e\n",pba->scf_M4,pba->scf_f);
+
+
     /** 8.b.3) SCF tuning parameter */
     /* Read */
     class_read_int("scf_tuning_index",pba->scf_tuning_index);
+
+    printf("DEBUG tuning_index from ini = %d\n", pba->scf_tuning_index);
+
     /* Test */
     class_test(pba->scf_tuning_index >= pba->scf_parameters_size,
                errmsg,
@@ -5927,7 +5959,7 @@ int input_default_params(struct background *pba,
   pba->phi_ini_scf = 1;                // MZ: initial conditions are as multiplicative
   pba->phi_prime_ini_scf = 1;          //     factors of the radiation attractor values
   /** 9.b.3) Tuning parameter */
-  pba->scf_tuning_index = 0;
+  pba->scf_tuning_index = -1;
 
   /**
    * Deafult to input_read_parameters_heating
