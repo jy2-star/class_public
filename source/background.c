@@ -472,20 +472,25 @@ int background_functions(
   /* Scalar field */
   if (pba->has_scf == _TRUE_) {
     phi = pvecback_B[pba->index_bi_phi_scf];
+    static int printed = 0;
+    if (printed == 0) {
+      printf("DEBUG phi_ini = %e\n",phi);
+      printed = 1;
+    }
     phi_prime = pvecback_B[pba->index_bi_phi_prime_scf];
     pvecback[pba->index_bg_phi_scf] = phi; // value of the scalar field phi
     pvecback[pba->index_bg_phi_prime_scf] = phi_prime; // value of the scalar field phi derivative wrt conformal time
     pvecback[pba->index_bg_V_scf] = V_scf(pba,phi); //V_scf(pba,phi); //write here potential as function of phi
     pvecback[pba->index_bg_dV_scf] = dV_scf(pba,phi); // dV_scf(pba,phi); //potential' as function of phi
     pvecback[pba->index_bg_ddV_scf] = ddV_scf(pba,phi); // ddV_scf(pba,phi); //potential'' as function of phi
-    pvecback[pba->index_bg_rho_scf] = (phi_prime*phi_prime/(2*a*a) + V_scf(pba,phi))/3.; // energy of the scalar field. The field units are set automatically by setting the initial conditions
-    pvecback[pba->index_bg_p_scf] =(phi_prime*phi_prime/(2*a*a) - V_scf(pba,phi))/3.; // pressure of the scalar field
+    pvecback[pba->index_bg_rho_scf] = (phi_prime*phi_prime/(2*a*a) + V_scf(pba,phi)); // energy of the scalar field. The field units are set automatically by setting the initial conditions
+    pvecback[pba->index_bg_p_scf] =(phi_prime*phi_prime/(2*a*a) - V_scf(pba,phi)); // pressure of the scalar field
     rho_tot += pvecback[pba->index_bg_rho_scf];
     p_tot += pvecback[pba->index_bg_p_scf];
     dp_dloga += 0.0; /** <-- This depends on a_prime_over_a, so we cannot add it now! */
     //divide relativistic & nonrelativistic (not very meaningful for oscillatory models)
-    rho_r += 3.*pvecback[pba->index_bg_p_scf]; //field pressure contributes radiation
-    rho_m += pvecback[pba->index_bg_rho_scf] - 3.* pvecback[pba->index_bg_p_scf]; //the rest contributes matter
+    //rho_r += 3.*pvecback[pba->index_bg_p_scf]; //field pressure contributes radiation
+    //rho_m += pvecback[pba->index_bg_rho_scf] - 3.* pvecback[pba->index_bg_p_scf]; //the rest contributes matter
     //printf(" a= %e, Omega_scf = %f, \n ",a, pvecback[pba->index_bg_rho_scf]/rho_tot );
   }
 
@@ -1168,7 +1173,7 @@ int background_indices(
   /* -> scalar field and its derivative wrt conformal time (Zuma) */
   class_define_index(pba->index_bi_phi_scf,pba->has_scf,index_bi,1);
   class_define_index(pba->index_bi_phi_prime_scf,pba->has_scf,index_bi,1);
-
+  
   /* End of {B} variables */
   pba->bi_B_size = index_bi;
 
@@ -2136,6 +2141,9 @@ int background_initial_conditions(
                                   double * loga_ini
                                   ) {
 
+  printf("DEBUG has_scf = %d\n", pba->has_scf);
+                                  
+
   /** Summary: */
 
   /** - define local variables */
@@ -2149,6 +2157,14 @@ int background_initial_conditions(
   double scf_lambda;
   double rho_fld_today;
   double w_fld,dw_over_da_fld,integral_fld;
+
+  scf_lambda = pba->scf_parameters[0];
+
+  pba->phi_ini_scf =
+  pba->scf_f * atan(0.5 * scf_lambda * pba->scf_f);
+
+  pba->phi_prime_ini_scf = 0.0;
+
 
   /** - fix initial value of \f$ a \f$ */
   a = ppr->a_ini_over_a_today_default;
@@ -2279,18 +2295,47 @@ int background_initial_conditions(
       pvecback_integration[pba->index_bi_phi_prime_scf] = 2.*a*sqrt(V_scf(pba,pvecback_integration[pba->index_bi_phi_scf]))*pba->phi_prime_ini_scf;
     }
     else {
-      printf("Not using attractor initial conditions\n");
+      //printf("Not using attractor initial conditions\n");
       /** - --> If no attractor initial conditions are assigned, gets the provided ones. */
-      pvecback_integration[pba->index_bi_phi_scf] = pba->phi_ini_scf;
-      pvecback_integration[pba->index_bi_phi_prime_scf] = pba->phi_prime_ini_scf;
-    }
+      //pvecback_integration[pba->index_bi_phi_scf] = pba->phi_ini_scf;
+      //pvecback_integration[pba->index_bi_phi_prime_scf] = pba->phi_prime_ini_scf;
+     
+      printf("Using thawing ICs (hilltop)\n");
+
+      pvecback_integration[pba->index_bi_phi_scf] =
+        0.5 * 3.141592653589793 * pba->scf_f - 1e-5 * pba->scf_f;
+
+      pvecback_integration[pba->index_bi_phi_prime_scf] = 0.0;
+
+      printf("IC CHECK: phi=%e  phi'=%e\n",
+      pvecback_integration[pba->index_bi_phi_scf],
+      pvecback_integration[pba->index_bi_phi_prime_scf]);
+
+      
+
+      /* Convert dphi/dN → dphi/dtau */
+      //double dphidN = 3.0e5;
+
+      /* Radiation era Hubble */
+      //double H = sqrt(rho_rad);
+
+      /* CLASS needs dphi/dtau */
+      //pvecback_integration[pba->index_bi_phi_prime_scf] =
+       // a * H * dphidN;
+       
+      
+      
+
+      }
+      
     class_test(!isfinite(pvecback_integration[pba->index_bi_phi_scf]) ||
-               !isfinite(pvecback_integration[pba->index_bi_phi_scf]),
+               !isfinite(pvecback_integration[pba->index_bi_phi_prime_scf]),
                pba->error_message,
                "initial phi = %e phi_prime = %e -> check initial conditions",
                pvecback_integration[pba->index_bi_phi_scf],
-               pvecback_integration[pba->index_bi_phi_scf]);
+               pvecback_integration[pba->index_bi_phi_prime_scf]);
   }
+
 
   /* Infer pvecback from pvecback_integration */
   class_call(background_functions(pba, a, pvecback_integration, normal_info, pvecback),
@@ -2608,6 +2653,14 @@ int background_derivs(
   pba =  pbpaw->pba;
   pvecback = pbpaw->pvecback;
 
+  static int printed_sizes = 0;
+  if (printed_sizes == 0) {
+    printf("DEBUG BI size = %d\n",pba->bi_size);
+    printf("DEBUG BG size = %d\n",pba->bg_size);
+  printed_sizes = 1;
+  }
+
+
   /** - scale factor a (in fact, given our normalisation conventions, this stands for a/a_0) */
   a = exp(loga);
 
@@ -2663,8 +2716,163 @@ int background_derivs(
   if (pba->has_scf == _TRUE_) {
     /** - Scalar field equation: \f$ \phi'' + 2 a H \phi' + a^2 dV = 0 \f$  (note H is wrt cosmological time)
         written as \f$ d\phi/dlna = phi' / (aH) \f$ and \f$ d\phi'/dlna = -2*phi' - (a/H) dV \f$ */
-    dy[pba->index_bi_phi_scf] = y[pba->index_bi_phi_prime_scf]/a/H;
-    dy[pba->index_bi_phi_prime_scf] = - 2*y[pba->index_bi_phi_prime_scf] - a*dV_scf(pba,y[pba->index_bi_phi_scf])/H ;
+    static int printed = 0;
+    static int seg_check_printed = 0;
+
+    /* DEBUG 1: Validate index_bi_phi_scf */
+    if (seg_check_printed == 0) {
+      printf("\n=== SCF INDEX VALIDATION ===\n");
+      printf("pba->has_scf = %d\n", pba->has_scf);
+      printf("pba->bi_size = %d\n", pba->bi_size);
+      printf("pba->index_bi_phi_scf = %d\n", pba->index_bi_phi_scf);
+      printf("pba->index_bi_phi_prime_scf = %d\n", pba->index_bi_phi_prime_scf);
+      
+      if (pba->index_bi_phi_scf < 0 || pba->index_bi_phi_scf >= pba->bi_size) {
+        printf("ERROR: index_bi_phi_scf=%d is out of bounds [0, %d)\n", 
+               pba->index_bi_phi_scf, pba->bi_size);
+        exit(1);
+      }
+      if (pba->index_bi_phi_prime_scf < 0 || pba->index_bi_phi_prime_scf >= pba->bi_size) {
+        printf("ERROR: index_bi_phi_prime_scf=%d is out of bounds [0, %d)\n", 
+               pba->index_bi_phi_prime_scf, pba->bi_size);
+        exit(1);
+      }
+      printf("✓ All indices valid\n");
+      seg_check_printed = 1;
+    }
+
+    /* DEBUG 2: Validate y and dy pointer accessibility */
+    if (printed == 0) {
+      printf("\n=== POINTER VALIDATION ===\n");
+      printf("y pointer = %p (non-null: %s)\n", (void*)y, y != NULL ? "YES" : "NO");
+      printf("dy pointer = %p (non-null: %s)\n", (void*)dy, dy != NULL ? "YES" : "NO");
+      printf("pba pointer = %p (non-null: %s)\n", (void*)pba, pba != NULL ? "YES" : "NO");
+      
+      if (y == NULL || dy == NULL || pba == NULL) {
+        printf("ERROR: NULL pointer detected!\n");
+        exit(1);
+      }
+    }
+
+    /* DEBUG 3: Check H value and division safety */
+    printf("\n=== H VALUE CHECK (every step) ===\n");
+    printf("H = %e\n", H);
+    printf("a = %e\n", a);
+    printf("a*H = %e\n", a*H);
+    
+    if (H <= 0.0) {
+      printf("ERROR: H=%e is non-positive! Division by H will fail.\n", H);
+      exit(1);
+    }
+    if (!isfinite(H)) {
+      printf("ERROR: H=%e is not finite (NaN or Inf)!\n", H);
+      exit(1);
+    }
+    if (!isfinite(a)) {
+      printf("ERROR: a=%e is not finite (NaN or Inf)!\n", a);
+      exit(1);
+    }
+
+    double phi_dbg = y[pba->index_bi_phi_scf];
+    double phip_dbg = y[pba->index_bi_phi_prime_scf];
+
+    if (printed == 0) {
+      printf("\n--- DERIV DEBUG (First Call) ---\n");
+      printf("a          = %e\n",a);
+      printf("H          = %e\n",H);
+      printf("phi        = %e\n",phi_dbg);
+      printf("phi'       = %e\n",phip_dbg);
+      printf("V(phi)     = %e\n",V_scf(pba,phi_dbg));
+      printf("dV(phi)    = %e\n",dV_scf(pba,phi_dbg));
+      printf("ddV(phi)   = %e\n",ddV_scf(pba,phi_dbg));
+
+      printed = 1;
+    }
+
+    /* DEBUG 4: Validate y array element values */
+    printf("\n=== Y ARRAY VALUE CHECK ===\n");
+    printf("y[%d] (phi)       = %e (finite: %s)\n", 
+           pba->index_bi_phi_scf, phi_dbg, isfinite(phi_dbg) ? "YES" : "NO");
+    printf("y[%d] (phi')      = %e (finite: %s)\n", 
+           pba->index_bi_phi_prime_scf, phip_dbg, isfinite(phip_dbg) ? "YES" : "NO");
+    
+    if (!isfinite(phi_dbg)) {
+      printf("ERROR: phi is not finite!\n");
+      exit(1);
+    }
+    if (!isfinite(phip_dbg)) {
+      printf("ERROR: phi' is not finite!\n");
+      exit(1);
+    }
+
+    /* DEBUG 5: Check potential function calls */
+    printf("\n=== POTENTIAL FUNCTION VALIDATION ===\n");
+    double V_val = V_scf(pba, phi_dbg);
+    double dV_val = dV_scf(pba, phi_dbg);
+    
+    printf("V_scf(pba, phi)  = %e (finite: %s)\n", V_val, isfinite(V_val) ? "YES" : "NO");
+    printf("dV_scf(pba, phi) = %e (finite: %s)\n", dV_val, isfinite(dV_val) ? "YES" : "NO");
+    
+    if (!isfinite(V_val)) {
+      printf("ERROR: V(phi) is not finite!\n");
+      exit(1);
+    }
+    if (!isfinite(dV_val)) {
+      printf("ERROR: dV(phi) is not finite!\n");
+      exit(1);
+    }
+
+    /* DEBUG 6: Check intermediate calculation terms */
+    printf("\n=== INTERMEDIATE TERM CHECK ===\n");
+    double term1_num = phip_dbg;
+    double term1_denom = a * H;
+    double term1 = term1_num / term1_denom;
+    
+    printf("dy[phi] numerator (y[phi'])   = %e\n", term1_num);
+    printf("dy[phi] denominator (a*H)     = %e\n", term1_denom);
+    printf("dy[phi] result (phi'/(a*H))   = %e (finite: %s)\n", 
+           term1, isfinite(term1) ? "YES" : "NO");
+    
+    if (!isfinite(term1)) {
+      printf("ERROR: dy[phi] computation failed!\n");
+      exit(1);
+    }
+
+    double term2_pt1 = 2.0 * phip_dbg;
+    double term2_pt2 = a * dV_val;
+    double term2 = term2_pt1 + term2_pt2 / H;
+    
+    printf("dy[phi'] term 1 (-2*phi')     = %e\n", -term2_pt1);
+    printf("dy[phi'] term 2 (-(a/H)*dV)   = %e\n", -(term2_pt2/H));
+    printf("dy[phi'] result               = %e (finite: %s)\n", 
+           -term2, isfinite(term2) ? "YES" : "NO");
+    
+    if (!isfinite(term2)) {
+      printf("ERROR: dy[phi'] computation failed!\n");
+      exit(1);
+    }
+
+    /* DEBUG 7: Check dy array bounds before write */
+    printf("\n=== DY ARRAY BOUNDS CHECK ===\n");
+    if (pba->index_bi_phi_scf < 0 || pba->index_bi_phi_scf >= pba->bi_size) {
+      printf("ERROR: dy[%d] write is out of bounds!\n", pba->index_bi_phi_scf);
+      exit(1);
+    }
+    if (pba->index_bi_phi_prime_scf < 0 || pba->index_bi_phi_prime_scf >= pba->bi_size) {
+      printf("ERROR: dy[%d] write is out of bounds!\n", pba->index_bi_phi_prime_scf);
+      exit(1);
+    }
+    printf("✓ dy array write indices are valid\n");
+
+    /* Perform the actual ODE integration */
+    printf("\n=== WRITING TO DY ARRAY ===\n");
+    dy[pba->index_bi_phi_scf] = term1;
+    printf("✓ dy[%d] = %e written successfully\n", 
+           pba->index_bi_phi_scf, dy[pba->index_bi_phi_scf]);
+    
+    dy[pba->index_bi_phi_prime_scf] = -term2;
+    printf("✓ dy[%d] = %e written successfully\n", 
+           pba->index_bi_phi_prime_scf, dy[pba->index_bi_phi_prime_scf]);
   }
 
   return _SUCCESS_;
@@ -2910,35 +3118,21 @@ int background_output_budget(
 double V_e_scf(struct background *pba,
                double phi
                ) {
-  double scf_lambda = pba->scf_parameters[0];
-  //  double scf_alpha  = pba->scf_parameters[1];
-  //  double scf_A      = pba->scf_parameters[2];
-  //  double scf_B      = pba->scf_parameters[3];
-
-  return  exp(-scf_lambda*phi);
+  return 1.0;
 }
 
 double dV_e_scf(struct background *pba,
                 double phi
                 ) {
-  double scf_lambda = pba->scf_parameters[0];
-  //  double scf_alpha  = pba->scf_parameters[1];
-  //  double scf_A      = pba->scf_parameters[2];
-  //  double scf_B      = pba->scf_parameters[3];
-
-  return -scf_lambda*V_e_scf(pba,phi);
+  return 0.0;
 }
 
 double ddV_e_scf(struct background *pba,
                  double phi
                  ) {
-  double scf_lambda = pba->scf_parameters[0];
-  //  double scf_alpha  = pba->scf_parameters[1];
-  //  double scf_A      = pba->scf_parameters[2];
-  //  double scf_B      = pba->scf_parameters[3];
-
-  return pow(-scf_lambda,2)*V_e_scf(pba,phi);
+  return 0.0;
 }
+
 
 
 /** parameters and functions for the polynomial coefficient
@@ -2954,35 +3148,26 @@ double ddV_e_scf(struct background *pba,
 double V_p_scf(
                struct background *pba,
                double phi) {
-  //  double scf_lambda = pba->scf_parameters[0];
-  double scf_alpha  = pba->scf_parameters[1];
-  double scf_A      = pba->scf_parameters[2];
-  double scf_B      = pba->scf_parameters[3];
-
-  return  pow(phi - scf_B,  scf_alpha) +  scf_A;
+  printf("DEBUG V call: phi=%e  f=%e\n",
+          phi,pba->scf_f);              
+  return pba->scf_M4 * pow(cos(phi/pba->scf_f),2.0);
 }
 
 double dV_p_scf(
                 struct background *pba,
                 double phi) {
 
-  //  double scf_lambda = pba->scf_parameters[0];
-  double scf_alpha  = pba->scf_parameters[1];
-  //  double scf_A      = pba->scf_parameters[2];
-  double scf_B      = pba->scf_parameters[3];
+  return - (pba->scf_M4/pba->scf_f)
+         * sin(phi/pba->scf_f)
+         * cos(phi/pba->scf_f);
 
-  return   scf_alpha*pow(phi -  scf_B,  scf_alpha - 1);
 }
 
 double ddV_p_scf(
                  struct background *pba,
                  double phi) {
-  //  double scf_lambda = pba->scf_parameters[0];
-  double scf_alpha  = pba->scf_parameters[1];
-  //  double scf_A      = pba->scf_parameters[2];
-  double scf_B      = pba->scf_parameters[3];
-
-  return  scf_alpha*(scf_alpha - 1.)*pow(phi -  scf_B,  scf_alpha - 2);
+  return - (pba->scf_M4/(pba->scf_f*pba->scf_f))
+         * cos(2.0*phi/pba->scf_f);
 }
 
 /** Fianlly we can obtain the overall potential \f$ V = V_p*V_e \f$
@@ -2991,17 +3176,19 @@ double ddV_p_scf(
 double V_scf(
              struct background *pba,
              double phi) {
-  return  V_e_scf(pba,phi)*V_p_scf(pba,phi);
+  return  pba->scf_M4 * pow(cos(phi/pba->scf_f),2.0);
 }
 
 double dV_scf(
               struct background *pba,
               double phi) {
-  return dV_e_scf(pba,phi)*V_p_scf(pba,phi) + V_e_scf(pba,phi)*dV_p_scf(pba,phi);
+  return  - (pba->scf_M4/pba->scf_f)
+         * sin(2.0*phi/pba->scf_f);
 }
 
 double ddV_scf(
                struct background *pba,
                double phi) {
-  return ddV_e_scf(pba,phi)*V_p_scf(pba,phi) + 2*dV_e_scf(pba,phi)*dV_p_scf(pba,phi) + V_e_scf(pba,phi)*ddV_p_scf(pba,phi);
+  return  - (2.0*pba->scf_M4/(pba->scf_f*pba->scf_f))
+         * cos(2.0*phi/pba->scf_f);
 }
