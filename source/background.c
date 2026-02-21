@@ -841,6 +841,27 @@ int background_init(
              pba->error_message,
              pba->error_message);
 
+  /* -- Safety check: compute and print Omega_phi(today) once if SCF enabled.
+     This prints the scalar-field fractional energy density at a=1 for
+     verification (does not modify budget closure logic). */
+  if (pba->has_scf == _TRUE_) {
+    double * pvecback_today = NULL;
+    int last_index = 0;
+    class_alloc(pvecback_today, pba->bg_size * sizeof(double), pba->error_message);
+    class_call(background_at_z(pba, 0.0, long_info, inter_normal, &last_index, pvecback_today),
+               pba->error_message,
+               pba->error_message);
+    /* rho_scf already stored in background table as total energy density of field */
+    double rho_phi = pvecback_today[pba->index_bg_rho_scf];
+    double rho_crit = pvecback_today[pba->index_bg_rho_crit];
+    double Omega_phi_today = 0.;
+    if (isfinite(rho_phi) && isfinite(rho_crit) && (rho_crit != 0.)) {
+      Omega_phi_today = rho_phi / rho_crit;
+    }
+    printf("DEBUG Omega_phi(today) = %e\n", Omega_phi_today);
+    free(pvecback_today);
+  }
+
   /** - find and store a few derived parameters at radiation-matter equality */
   class_call(background_find_equality(ppr,pba),
              pba->error_message,
@@ -951,9 +972,9 @@ int background_free_input(
       free(pba->ncdm_psd_parameters);
   }
 
-  if (pba->Omega0_scf != 0.) {
-    if (pba->scf_parameters != NULL)
-      free(pba->scf_parameters);
+  if (pba->scf_parameters != NULL) {
+    free(pba->scf_parameters);
+    pba->scf_parameters = NULL;
   }
   return _SUCCESS_;
 }
@@ -978,20 +999,24 @@ int background_indices(
   /* a running index for the vector of background quantities to be integrated */
   int index_bi;
 
-  /** - initialize all flags: which species are present? */
+    /** - initialize all flags: which species are present? */
 
-  pba->has_cdm = _FALSE_;
-  pba->has_idm = _FALSE_;
-  pba->has_ncdm = _FALSE_;
-  pba->has_dcdm = _FALSE_;
-  pba->has_dr = _FALSE_;
-  pba->has_scf = _FALSE_;
-  pba->has_lambda = _FALSE_;
-  pba->has_fld = _FALSE_;
-  pba->has_ur = _FALSE_;
-  pba->has_idr = _FALSE_;
-  pba->has_curvature = _FALSE_;
-  pba->has_varconst  = _FALSE_;
+    /* Preserve any pre-set has_scf value (e.g. enabled from input parsing
+      for thawing SCF). Store it and re-apply after automatic detection. */
+    short was_has_scf = pba->has_scf;
+
+    pba->has_cdm = _FALSE_;
+    pba->has_idm = _FALSE_;
+    pba->has_ncdm = _FALSE_;
+    pba->has_dcdm = _FALSE_;
+    pba->has_dr = _FALSE_;
+    pba->has_scf = _FALSE_;
+    pba->has_lambda = _FALSE_;
+    pba->has_fld = _FALSE_;
+    pba->has_ur = _FALSE_;
+    pba->has_idr = _FALSE_;
+    pba->has_curvature = _FALSE_;
+    pba->has_varconst  = _FALSE_;
 
   if (pba->Omega0_cdm != 0.)
     pba->has_cdm = _TRUE_;
@@ -1009,6 +1034,11 @@ int background_indices(
   }
 
   if (pba->Omega0_scf != 0.)
+    pba->has_scf = _TRUE_;
+
+  /* If SCF was explicitly enabled earlier (e.g. by providing scf_M4 and scf_f),
+     keep it enabled even if Omega0_scf is zero (we will compute it dynamically). */
+  if (was_has_scf == _TRUE_)
     pba->has_scf = _TRUE_;
 
   if (pba->Omega0_lambda != 0.)
@@ -2300,11 +2330,11 @@ int background_initial_conditions(
       //pvecback_integration[pba->index_bi_phi_scf] = pba->phi_ini_scf;
       //pvecback_integration[pba->index_bi_phi_prime_scf] = pba->phi_prime_ini_scf;
      
-      printf("Using thawing ICs (hilltop)\n");
-
-      pvecback_integration[pba->index_bi_phi_scf] =
-        0.5 * 3.141592653589793 * pba->scf_f - 1e-5 * pba->scf_f;
-
+      printf("Using thawing ICs (minimum)\n");
+      /* Start at minimum → maximal potential energy */
+      pvecback_integration[pba->index_bi_phi_scf] = 0.0;
+        
+      /* Frozen initially */
       pvecback_integration[pba->index_bi_phi_prime_scf] = 0.0;
 
       printf("IC CHECK: phi=%e  phi'=%e\n",
@@ -2716,11 +2746,17 @@ int background_derivs(
   if (pba->has_scf == _TRUE_) {
     /** - Scalar field equation: \f$ \phi'' + 2 a H \phi' + a^2 dV = 0 \f$  (note H is wrt cosmological time)
         written as \f$ d\phi/dlna = phi' / (aH) \f$ and \f$ d\phi'/dlna = -2*phi' - (a/H) dV \f$ */
-    static int printed = 0;
-    static int seg_check_printed = 0;
+    static int printed_index = 0;
+    static int printed_pointer = 0;
+    static int printed_h_value = 0;
+    static int printed_y_array = 0;
+    static int printed_potential = 0;
+    static int printed_terms = 0;
+    static int printed_bounds = 0;
+    static int printed_write = 0;
 
     /* DEBUG 1: Validate index_bi_phi_scf */
-    if (seg_check_printed == 0) {
+    if (printed_index == 0) {
       printf("\n=== SCF INDEX VALIDATION ===\n");
       printf("pba->has_scf = %d\n", pba->has_scf);
       printf("pba->bi_size = %d\n", pba->bi_size);
@@ -2738,11 +2774,11 @@ int background_derivs(
         exit(1);
       }
       printf("✓ All indices valid\n");
-      seg_check_printed = 1;
+      printed_index = 1;
     }
 
     /* DEBUG 2: Validate y and dy pointer accessibility */
-    if (printed == 0) {
+    if (printed_pointer == 0) {
       printf("\n=== POINTER VALIDATION ===\n");
       printf("y pointer = %p (non-null: %s)\n", (void*)y, y != NULL ? "YES" : "NO");
       printf("dy pointer = %p (non-null: %s)\n", (void*)dy, dy != NULL ? "YES" : "NO");
@@ -2752,89 +2788,80 @@ int background_derivs(
         printf("ERROR: NULL pointer detected!\n");
         exit(1);
       }
+      printed_pointer = 1;
     }
 
-    /* DEBUG 3: Check H value and division safety */
-    printf("\n=== H VALUE CHECK (every step) ===\n");
-    printf("H = %e\n", H);
-    printf("a = %e\n", a);
-    printf("a*H = %e\n", a*H);
-    
+    /* DEBUG 3: Check H value and division safety (check every step, print once) */
     if (H <= 0.0) {
-      printf("ERROR: H=%e is non-positive! Division by H will fail.\n", H);
+      printf("ERROR (Step %d): H=%e is non-positive! Division by H will fail.\n", printed_h_value, H);
       exit(1);
     }
     if (!isfinite(H)) {
-      printf("ERROR: H=%e is not finite (NaN or Inf)!\n", H);
+      printf("ERROR (Step %d): H=%e is not finite (NaN or Inf)!\n", printed_h_value, H);
       exit(1);
     }
     if (!isfinite(a)) {
-      printf("ERROR: a=%e is not finite (NaN or Inf)!\n", a);
+      printf("ERROR (Step %d): a=%e is not finite (NaN or Inf)!\n", printed_h_value, a);
       exit(1);
+    }
+    
+    if (printed_h_value == 0) {
+      printf("\n=== H VALUE CHECK (all values finite and positive) ===\n");
+      printf("H = %e\n", H);
+      printf("a = %e\n", a);
+      printf("a*H = %e\n", a*H);
+      printed_h_value = 1;
     }
 
     double phi_dbg = y[pba->index_bi_phi_scf];
     double phip_dbg = y[pba->index_bi_phi_prime_scf];
 
-    if (printed == 0) {
-      printf("\n--- DERIV DEBUG (First Call) ---\n");
-      printf("a          = %e\n",a);
-      printf("H          = %e\n",H);
-      printf("phi        = %e\n",phi_dbg);
-      printf("phi'       = %e\n",phip_dbg);
-      printf("V(phi)     = %e\n",V_scf(pba,phi_dbg));
-      printf("dV(phi)    = %e\n",dV_scf(pba,phi_dbg));
-      printf("ddV(phi)   = %e\n",ddV_scf(pba,phi_dbg));
-
-      printed = 1;
-    }
-
-    /* DEBUG 4: Validate y array element values */
-    printf("\n=== Y ARRAY VALUE CHECK ===\n");
-    printf("y[%d] (phi)       = %e (finite: %s)\n", 
-           pba->index_bi_phi_scf, phi_dbg, isfinite(phi_dbg) ? "YES" : "NO");
-    printf("y[%d] (phi')      = %e (finite: %s)\n", 
-           pba->index_bi_phi_prime_scf, phip_dbg, isfinite(phip_dbg) ? "YES" : "NO");
-    
+    /* DEBUG 4: Validate y array element values (check every step, print once) */
     if (!isfinite(phi_dbg)) {
-      printf("ERROR: phi is not finite!\n");
+      printf("ERROR (Step %d): phi is not finite! \n", printed_y_array);
       exit(1);
     }
     if (!isfinite(phip_dbg)) {
-      printf("ERROR: phi' is not finite!\n");
+      printf("ERROR (Step %d): phi' is not finite!\n", printed_y_array);
       exit(1);
     }
+    
+    if (printed_y_array == 0) {
+      printf("\n=== Y ARRAY VALUE CHECK ===\n");
+      printf("y[%d] (phi)       = %e (finite: YES)\n", 
+             pba->index_bi_phi_scf, phi_dbg);
+      printf("y[%d] (phi')      = %e (finite: YES)\n", 
+             pba->index_bi_phi_prime_scf, phip_dbg);
+      printed_y_array = 1;
+    }
 
-    /* DEBUG 5: Check potential function calls */
-    printf("\n=== POTENTIAL FUNCTION VALIDATION ===\n");
+    /* DEBUG 5: Check potential function calls (check every step, print once) */
     double V_val = V_scf(pba, phi_dbg);
     double dV_val = dV_scf(pba, phi_dbg);
     
-    printf("V_scf(pba, phi)  = %e (finite: %s)\n", V_val, isfinite(V_val) ? "YES" : "NO");
-    printf("dV_scf(pba, phi) = %e (finite: %s)\n", dV_val, isfinite(dV_val) ? "YES" : "NO");
-    
     if (!isfinite(V_val)) {
-      printf("ERROR: V(phi) is not finite!\n");
+      printf("ERROR (Step %d): V(phi) is not finite!\n", printed_potential);
       exit(1);
     }
     if (!isfinite(dV_val)) {
-      printf("ERROR: dV(phi) is not finite!\n");
+      printf("ERROR (Step %d): dV(phi) is not finite!\n", printed_potential);
       exit(1);
     }
+    
+    if (printed_potential == 0) {
+      printf("\n=== POTENTIAL FUNCTION VALIDATION ===\n");
+      printf("V_scf(pba, phi)  = %e (finite: YES)\n", V_val);
+      printf("dV_scf(pba, phi) = %e (finite: YES)\n", dV_val);
+      printed_potential = 1;
+    }
 
-    /* DEBUG 6: Check intermediate calculation terms */
-    printf("\n=== INTERMEDIATE TERM CHECK ===\n");
+    /* DEBUG 6: Check intermediate calculation terms (check every step, print once) */
     double term1_num = phip_dbg;
     double term1_denom = a * H;
     double term1 = term1_num / term1_denom;
     
-    printf("dy[phi] numerator (y[phi'])   = %e\n", term1_num);
-    printf("dy[phi] denominator (a*H)     = %e\n", term1_denom);
-    printf("dy[phi] result (phi'/(a*H))   = %e (finite: %s)\n", 
-           term1, isfinite(term1) ? "YES" : "NO");
-    
     if (!isfinite(term1)) {
-      printf("ERROR: dy[phi] computation failed!\n");
+      printf("ERROR (Step %d): dy[phi] computation failed!\n", printed_terms);
       exit(1);
     }
 
@@ -2842,37 +2869,53 @@ int background_derivs(
     double term2_pt2 = a * dV_val;
     double term2 = term2_pt1 + term2_pt2 / H;
     
-    printf("dy[phi'] term 1 (-2*phi')     = %e\n", -term2_pt1);
-    printf("dy[phi'] term 2 (-(a/H)*dV)   = %e\n", -(term2_pt2/H));
-    printf("dy[phi'] result               = %e (finite: %s)\n", 
-           -term2, isfinite(term2) ? "YES" : "NO");
-    
     if (!isfinite(term2)) {
-      printf("ERROR: dy[phi'] computation failed!\n");
+      printf("ERROR (Step %d): dy[phi'] computation failed!\n", printed_terms);
       exit(1);
     }
+    
+    if (printed_terms == 0) {
+      printf("\n=== INTERMEDIATE TERM CHECK ===\n");
+      printf("dy[phi] numerator (y[phi'])   = %e\n", term1_num);
+      printf("dy[phi] denominator (a*H)     = %e\n", term1_denom);
+      printf("dy[phi] result (phi'/(a*H))   = %e (finite: YES)\n", term1);
+      printf("dy[phi'] term 1 (-2*phi')     = %e\n", -term2_pt1);
+      printf("dy[phi'] term 2 (-(a/H)*dV)   = %e\n", -(term2_pt2/H));
+      printf("dy[phi'] result               = %e (finite: YES)\n", -term2);
+      printed_terms = 1;
+    }
 
-    /* DEBUG 7: Check dy array bounds before write */
-    printf("\n=== DY ARRAY BOUNDS CHECK ===\n");
+    /* DEBUG 7: Check dy array bounds before write (check every step, print once) */
     if (pba->index_bi_phi_scf < 0 || pba->index_bi_phi_scf >= pba->bi_size) {
-      printf("ERROR: dy[%d] write is out of bounds!\n", pba->index_bi_phi_scf);
+      printf("ERROR (Step %d): dy[%d] write is out of bounds!\n", printed_bounds, pba->index_bi_phi_scf);
       exit(1);
     }
     if (pba->index_bi_phi_prime_scf < 0 || pba->index_bi_phi_prime_scf >= pba->bi_size) {
-      printf("ERROR: dy[%d] write is out of bounds!\n", pba->index_bi_phi_prime_scf);
+      printf("ERROR (Step %d): dy[%d] write is out of bounds!\n", printed_bounds, pba->index_bi_phi_prime_scf);
       exit(1);
     }
-    printf("✓ dy array write indices are valid\n");
+    
+    if (printed_bounds == 0) {
+      printf("\n=== DY ARRAY BOUNDS CHECK ===\n");
+      printf("✓ dy array write indices are valid\n");
+      printed_bounds = 1;
+    }
 
     /* Perform the actual ODE integration */
-    printf("\n=== WRITING TO DY ARRAY ===\n");
-    dy[pba->index_bi_phi_scf] = term1;
-    printf("✓ dy[%d] = %e written successfully\n", 
-           pba->index_bi_phi_scf, dy[pba->index_bi_phi_scf]);
+    if (printed_write == 0) {
+      printf("\n=== WRITING TO DY ARRAY ===\n");
+      printed_write = 1;
+    }
     
+    dy[pba->index_bi_phi_scf] = term1;
     dy[pba->index_bi_phi_prime_scf] = -term2;
-    printf("✓ dy[%d] = %e written successfully\n", 
-           pba->index_bi_phi_prime_scf, dy[pba->index_bi_phi_prime_scf]);
+    
+    if (printed_write == 1) {
+      printf("✓ dy[%d] = %e, dy[%d] = %e written successfully\n", 
+             pba->index_bi_phi_scf, dy[pba->index_bi_phi_scf],
+             pba->index_bi_phi_prime_scf, dy[pba->index_bi_phi_prime_scf]);
+      printed_write = 2;
+    }
   }
 
   return _SUCCESS_;

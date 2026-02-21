@@ -766,6 +766,7 @@ int input_shooting(struct file_content * pfc,
     /* Disable shooting for SCF (we provide ICs manually) */
   if (pba->has_scf == _TRUE_) {
     *has_shooting = _FALSE_;
+     
   }
   else {
     /* Tell the main function that shooting indeed has occured */
@@ -3195,31 +3196,107 @@ int input_read_parameters_species(struct file_content * pfc,
   /** 8) Dark energy
       Omega_0_lambda (cosmological constant), Omega0_fld (dark energy
       fluid), Omega0_scf (scalar field) */
-  /* Read */
-  class_call(parser_read_double(pfc,"Omega_Lambda",&param1,&flag1,errmsg),
-             errmsg,
-             errmsg);
-  class_call(parser_read_double(pfc,"Omega_fld",&param2,&flag2,errmsg),
-             errmsg,
-             errmsg);
-  class_call(parser_read_double(pfc,"Omega_scf",&param3,&flag3,errmsg),
-             errmsg,
-             errmsg);
-  /* Test */
-  class_test((flag1 == _TRUE_) && (flag2 == _TRUE_) && ((flag3 == _FALSE_) || (param3 >= 0.)),
-             errmsg,
-             "'Omega_Lambda' or 'Omega_fld' must be left unspecified, except if 'Omega_scf' is set and < 0.");
-  class_test(((flag1 == _FALSE_)||(flag2 == _FALSE_)) && ((flag3 == _TRUE_) && (param3 < 0.)),
-             errmsg,
-             "You have entered 'Omega_scf' < 0 , so you have to specify both 'Omega_lambda' and 'Omega_fld'.");
-  /* Complete set of parameters
-     Case of (flag3 == _FALSE_) || (param3 >= 0.) means that either we have not
-     read Omega_scf so we are ignoring it (unlike lambda and fld!) OR we have
-     read it, but it had a positive value and should not be used for filling.
-     We now proceed in two steps:
-     1) set each Omega0 and add to the total for each specified component.
-     2) go through the components in order {lambda, fld, scf} and fill using
-     first unspecified component. */
+    /* Read */
+    class_call(parser_read_double(pfc,"Omega_Lambda",&param1,&flag1,errmsg),
+           errmsg,
+           errmsg);
+    class_call(parser_read_double(pfc,"Omega_fld",&param2,&flag2,errmsg),
+           errmsg,
+           errmsg);
+
+    /* Do not read Omega_scf from the input file for thawing SCF models.
+      Instead, SCF energy density today will be computed dynamically by
+      evolving the scalar field. Initialize defaults here. */
+    param3 = 0.; flag3 = _FALSE_;
+    pba->Omega0_scf = 0.;
+
+    /* --- Read optional SCF inputs now so we know whether SCF is enabled
+      before the budget closure is computed. If any SCF-specific input is
+      present, enable the scalar field and force Omega_Lambda to zero to
+      avoid double counting dark energy. */
+    pba->scf_parameters = NULL;
+    pba->scf_parameters_size = 0;
+    class_call(parser_read_list_of_doubles(pfc,
+                                           "scf_parameters",
+                                           &(pba->scf_parameters_size),
+                                           &(pba->scf_parameters),
+                                           &flag1,
+                                           errmsg),
+               errmsg,errmsg);
+
+    /* SCF initial conditions from attractor solution (if provided) */
+    class_call(parser_read_string(pfc,
+                                  "attractor_ic_scf",
+                                  &string1,
+                                  &flag1,
+                                  errmsg),
+               errmsg,
+               errmsg);
+    if (flag1 == _TRUE_){
+      if (string_begins_with(string1,'y') || string_begins_with(string1,'Y')){
+        pba->attractor_ic_scf = _TRUE_;
+      }
+      else {
+        pba->attractor_ic_scf = _FALSE_;
+        /* if manual ICs, ensure provided */
+        class_test(pba->scf_parameters_size<2,
+                   errmsg,
+                   "Since you are not using attractor initial conditions, you must specify phi and its derivative phi' as the last two entries in scf_parameters. See explanatory.ini for more details.");
+        pba->phi_ini_scf = pba->scf_parameters[pba->scf_parameters_size-2];
+        pba->phi_prime_ini_scf = pba->scf_parameters[pba->scf_parameters_size-1];
+      }
+    }
+
+      /* default potential parameters */
+      pba->scf_M4 = 1e-20;
+      pba->scf_f  = 1.0;
+      flag2 = _FALSE_;
+      flag3 = _FALSE_;
+      class_call(parser_read_double(pfc,
+             "scf_M4",
+             &pba->scf_M4,
+             &flag2,
+             errmsg),
+        errmsg,
+        errmsg);
+
+      class_call(parser_read_double(pfc,
+             "scf_f",
+             &pba->scf_f,
+             &flag3,
+             errmsg),
+        errmsg,
+        errmsg);
+
+    /* SCF tuning index (if present). Default to -1 (no shooting). */
+    class_read_int("scf_tuning_index",pba->scf_tuning_index);
+    if (pba->scf_tuning_index >= 0) {
+      class_test(pba->scf_tuning_index >= pba->scf_parameters_size,
+                 errmsg,
+                 "Tuning index 'scf_tuning_index' (%d) is larger than the number of entries (%d) in 'scf_parameters'.",
+                 pba->scf_tuning_index,pba->scf_parameters_size);
+      /* Only attempt shooting if tuning index >= 0 */
+      class_read_double("scf_shooting_parameter",pba->scf_parameters[pba->scf_tuning_index]);
+    }
+
+    /* Set has_scf only if BOTH scf_M4 and scf_f were explicitly provided.
+       Do NOT enable SCF if only scf_parameters or attractor_ic_scf is present. */
+    if ((flag2 == _TRUE_) && (flag3 == _TRUE_)){
+      pba->has_scf = _TRUE_;
+     /* Force Omega_scf to be computed dynamically and ensure Omega_Lambda is 0 */
+     pba->Omega0_scf = 0.;
+     /* Treat Lambda as explicitly specified (value set to 0) so budget fill
+       does not try to assign to it */
+     param1 = 0.;
+     flag1 = _TRUE_;
+     pba->Omega0_lambda = 0.;
+     if (input_verbose > 0){
+      printf("SCF enabled via input parameters: scf_M4=%e scf_f=%e scf_parameters_size=%d. Forcing Omega_Lambda=0.\n",
+           pba->scf_M4,pba->scf_f,pba->scf_parameters_size);
+     }
+    }
+
+    /* Complete set of parameters: budget filling will follow below */
 
   /* ** BUDGET EQUATION ** -> Add your species here */
   /* Compute Omega_tot */
@@ -3317,90 +3394,6 @@ int input_read_parameters_species(struct file_content * pfc,
       class_read_double("w0_fld",pba->w0_fld);
       class_read_double("Omega_EDE",pba->Omega_EDE);
       class_read_double("cs2_fld",pba->cs2_fld);
-    }
-  }
-
-  /** 8.b) If Omega scalar field (SCF) is different from 0 */
-  if (pba->Omega0_scf != 0.){
-
-    /** 8.b.1) Additional SCF parameters */
-    /* Read */
-    class_call(parser_read_list_of_doubles(pfc,
-                                           "scf_parameters",
-                                           &(pba->scf_parameters_size),
-                                           &(pba->scf_parameters),
-                                           &flag1,
-                                           errmsg),
-               errmsg,errmsg);
-
-    /** 8.b.2) SCF initial conditions from attractor solution */
-    /* Read */
-    class_call(parser_read_string(pfc,
-                                  "attractor_ic_scf",
-                                  &string1,
-                                  &flag1,
-                                  errmsg),
-               errmsg,
-               errmsg);
-    /* Complete set of parameters */
-    if (flag1 == _TRUE_){
-      if (string_begins_with(string1,'y') || string_begins_with(string1,'Y')){
-        pba->attractor_ic_scf = _TRUE_;
-      }
-      else {
-        pba->attractor_ic_scf = _FALSE_;
-        /* Test */
-        class_test(pba->scf_parameters_size<2,
-                   errmsg,
-                   "Since you are not using attractor initial conditions, you must specify phi and its derivative phi' as the last two entries in scf_parameters. See explanatory.ini for more details.");
-        pba->phi_ini_scf = pba->scf_parameters[pba->scf_parameters_size-2];
-        pba->phi_prime_ini_scf = pba->scf_parameters[pba->scf_parameters_size-1];
-      }
-    }
-
-    /* ---- Read thawing cos^2 potential parameters ---- */
-
-    pba->scf_M4 = 1e-20;
-    pba->scf_f  = 1.0;
-
-    class_call(parser_read_double(pfc,
-                              "scf_M4",
-                              &pba->scf_M4,
-                              &flag1,
-                              errmsg),
-              errmsg,
-              errmsg);
-
-    class_call(parser_read_double(pfc,
-                              "scf_f",
-                              &pba->scf_f,
-                              &flag1,
-                              errmsg),
-              errmsg,
-              errmsg);
-
-    printf("DEBUG INPUT: M4=%e  f=%e\n",pba->scf_M4,pba->scf_f);
-
-
-    /** 8.b.3) SCF tuning parameter */
-    /* Read */
-    class_read_int("scf_tuning_index",pba->scf_tuning_index);
-
-    printf("DEBUG tuning_index from ini = %d\n", pba->scf_tuning_index);
-
-    /* Test */
-    class_test(pba->scf_tuning_index >= pba->scf_parameters_size,
-               errmsg,
-               "Tuning index 'scf_tuning_index' (%d) is larger than the number of entries (%d) in 'scf_parameters'.",
-               pba->scf_tuning_index,pba->scf_parameters_size);
-
-    /** 8.b.4) Shooting parameter */
-    /* Read */
-    class_read_double("scf_shooting_parameter",pba->scf_parameters[pba->scf_tuning_index]);
-    /* Complete set of parameters */
-    scf_lambda = pba->scf_parameters[0];
-    if ((fabs(scf_lambda) < 3.)&&(pba->background_verbose>1)){
-      printf("'scf_lambda' = %e < 3 won't be tracking (for exp quint) unless overwritten by tuning function.",scf_lambda);
     }
   }
 
