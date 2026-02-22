@@ -485,6 +485,11 @@ int background_functions(
     pvecback[pba->index_bg_ddV_scf] = ddV_scf(pba,phi); // ddV_scf(pba,phi); //potential'' as function of phi
     pvecback[pba->index_bg_rho_scf] = (phi_prime*phi_prime/(2*a*a) + V_scf(pba,phi)); // energy of the scalar field. The field units are set automatically by setting the initial conditions
     pvecback[pba->index_bg_p_scf] =(phi_prime*phi_prime/(2*a*a) - V_scf(pba,phi)); // pressure of the scalar field
+    /* equation of state w = p/rho (safe division) */
+    if (pvecback[pba->index_bg_rho_scf] != 0.0)
+      pvecback[pba->index_bg_w_scf] = pvecback[pba->index_bg_p_scf] / pvecback[pba->index_bg_rho_scf];
+    else
+      pvecback[pba->index_bg_w_scf] = 0.0;
     rho_tot += pvecback[pba->index_bg_rho_scf];
     p_tot += pvecback[pba->index_bg_p_scf];
     dp_dloga += 0.0; /** <-- This depends on a_prime_over_a, so we cannot add it now! */
@@ -596,8 +601,11 @@ int background_functions(
   pvecback[pba->index_bg_p_tot_prime] = a*pvecback[pba->index_bg_H]*dp_dloga;
   if (pba->has_scf == _TRUE_) {
     /** The contribution of scf was not added to dp_dloga, add p_scf_prime here: */
-    pvecback[pba->index_bg_p_prime_scf] = pvecback[pba->index_bg_phi_prime_scf]*
-      (-pvecback[pba->index_bg_phi_prime_scf]*pvecback[pba->index_bg_H]/a-2./3.*pvecback[pba->index_bg_dV_scf]);
+    /* Correct dp_scf/dtau = -3 H phi'^2 / a - 2 phi' dV/dphi
+     * = phi' * ( -3 * phi' * H / a - 2 * dV ) */
+    pvecback[pba->index_bg_p_prime_scf] = pvecback[pba->index_bg_phi_prime_scf] *
+      ( -3.0 * pvecback[pba->index_bg_phi_prime_scf] * pvecback[pba->index_bg_H] / a
+        - 2.0 * pvecback[pba->index_bg_dV_scf] );
     pvecback[pba->index_bg_p_tot_prime] += pvecback[pba->index_bg_p_prime_scf];
   }
 
@@ -1106,6 +1114,7 @@ int background_indices(
   class_define_index(pba->index_bg_ddV_scf,pba->has_scf,index_bg,1);
   class_define_index(pba->index_bg_rho_scf,pba->has_scf,index_bg,1);
   class_define_index(pba->index_bg_p_scf,pba->has_scf,index_bg,1);
+  class_define_index(pba->index_bg_w_scf,pba->has_scf,index_bg,1);
   class_define_index(pba->index_bg_p_prime_scf,pba->has_scf,index_bg,1);
 
   /* - index for Lambda */
@@ -2332,14 +2341,28 @@ int background_initial_conditions(
      
       printf("Using thawing ICs (minimum)\n");
       /* Start at minimum → maximal potential energy */
-      pvecback_integration[pba->index_bi_phi_scf] = 0.0;
+      pvecback_integration[pba->index_bi_phi_scf] = 0.3 * pba->scf_f;
         
-      /* Frozen initially */
-      pvecback_integration[pba->index_bi_phi_prime_scf] = 0.0;
+      /* Initialize phi' from slow-roll attractor (conformal-time derivative).
+         Slow-roll in cosmic time: 3 H phi_dot ~= - dV/dphi
+         Convert: phi' = a * phi_dot  => phi'_ini = - a * dV/dphi / (3 H_ini)
+         Compute H_ini from initialized densities using Friedmann. */
 
-      printf("IC CHECK: phi=%e  phi'=%e\n",
-      pvecback_integration[pba->index_bi_phi_scf],
-      pvecback_integration[pba->index_bi_phi_prime_scf]);
+      double rho_tot_ini = rho_rad;
+      if (pba->has_dcdm == _TRUE_) rho_tot_ini += pvecback_integration[pba->index_bi_rho_dcdm];
+      if (pba->has_dr == _TRUE_)   rho_tot_ini += pvecback_integration[pba->index_bi_rho_dr];
+      if (pba->has_fld == _TRUE_)  rho_tot_ini += pvecback_integration[pba->index_bi_rho_fld];
+
+      double H_ini = sqrt(rho_tot_ini - pba->K/a/a);
+      class_test(H_ini <= 0., pba->error_message, "H_ini = %e <= 0 in SCF ICs", H_ini);
+
+      pvecback_integration[pba->index_bi_phi_prime_scf] =
+        - a * dV_scf(pba, pvecback_integration[pba->index_bi_phi_scf]) / (3.0 * H_ini);
+
+      printf("IC CHECK: phi=%e  phi'=%e  (H_ini=%e, a=%e)\n",
+             pvecback_integration[pba->index_bi_phi_scf],
+             pvecback_integration[pba->index_bi_phi_prime_scf],
+             H_ini, a);
 
       
 
@@ -2535,6 +2558,7 @@ int background_output_titles(
 
   class_store_columntitle(titles,"(.)rho_scf",pba->has_scf);
   class_store_columntitle(titles,"(.)p_scf",pba->has_scf);
+  class_store_columntitle(titles,"(.)w_scf",pba->has_scf);
   class_store_columntitle(titles,"(.)p_prime_scf",pba->has_scf);
   class_store_columntitle(titles,"phi_scf",pba->has_scf);
   class_store_columntitle(titles,"phi'_scf",pba->has_scf);
@@ -2611,6 +2635,7 @@ int background_output_data(
 
     class_store_double(dataptr,pvecback[pba->index_bg_rho_scf],pba->has_scf,storeidx);
     class_store_double(dataptr,pvecback[pba->index_bg_p_scf],pba->has_scf,storeidx);
+    class_store_double(dataptr,pvecback[pba->index_bg_w_scf],pba->has_scf,storeidx);
     class_store_double(dataptr,pvecback[pba->index_bg_p_prime_scf],pba->has_scf,storeidx);
     class_store_double(dataptr,pvecback[pba->index_bg_phi_scf],pba->has_scf,storeidx);
     class_store_double(dataptr,pvecback[pba->index_bg_phi_prime_scf],pba->has_scf,storeidx);
