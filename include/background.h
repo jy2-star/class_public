@@ -115,6 +115,8 @@ struct background
   double * scf_parameters; /**< list of parameters describing the scalar field potential */
   short attractor_ic_scf;  /**< whether the scalar field has attractor initial conditions */
   int scf_tuning_index;    /**< index in scf_parameters used for tuning */
+  short has_phi_ini_scf;   /**< whether user provided scf_phi_ini in .ini */
+  short has_phi_prime_ini_scf; /**< whether user provided scf_phi_prime_ini in .ini */
   double phi_ini_scf;      /**< \f$ \phi(t_0) \f$: scalar field initial value */
   double phi_prime_ini_scf;/**< \f$ d\phi(t_0)/d\tau \f$: scalar field initial derivative wrt conformal time */
   int scf_parameters_size; /**< size of scf_parameters */

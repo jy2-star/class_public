@@ -2199,10 +2199,41 @@ int background_initial_conditions(
 
   scf_lambda = pba->scf_parameters[0];
 
-  pba->phi_ini_scf =
-  pba->scf_f * atan(0.5 * scf_lambda * pba->scf_f);
+  /* Debug: show the values read from the .ini (if any) before they may be overwritten below */
+  printf("INI phi_ini_scf from input = %e\n", pba->phi_ini_scf);
+  printf("INI phi_prime_ini_scf from input = %e (has flag %d)\n",
+         pba->phi_prime_ini_scf,pba->has_phi_prime_ini_scf);
 
-  pba->phi_prime_ini_scf = 0.0;
+  /* Only compute default thawing IC if user did not provide scf_phi_ini */
+  //if (pba->has_phi_ini_scf != _TRUE_) 
+  {
+    
+    double phi_max = _PI_ * pba->scf_f / 2.0;
+    
+    /* clamp the shooting variable itself */
+    if (pba->scf_parameters[0] < 1e-4)
+      pba->scf_parameters[0] = 1e-4;
+    else if (pba->scf_parameters[0] > phi_max*0.99)
+      pba->scf_parameters[0] = phi_max*0.99;
+
+    /* assign */
+    pba->phi_ini_scf = pba->scf_parameters[0];
+  }
+
+  /* === SHOOTING DEBUG: add here === */
+  printf("SHOOT DEBUG: scf_parameters[0] = %e\n", pba->scf_parameters[0]);
+  printf("SHOOT DEBUG: scf_lambda        = %e\n", scf_lambda);
+  printf("SHOOT DEBUG: phi_ini_scf       = %e\n", pba->phi_ini_scf);
+  /* Note: Omega_phi is not yet computed here, it is only available  */
+  /* after background_solve(), so we cannot print it at this point.  */
+  /* It gets printed later via: DEBUG Omega_phi(today) = ...         */
+
+
+  /* default slope for a thawing field: zero unless the user explicitly
+     supplied a value via the ini file or via scf_parameters in manual mode */
+  if (pba->has_phi_prime_ini_scf != _TRUE_) {
+    pba->phi_prime_ini_scf = 0.0;
+  }
 
 
   /** - fix initial value of \f$ a \f$ */
@@ -2339,30 +2370,16 @@ int background_initial_conditions(
       //pvecback_integration[pba->index_bi_phi_scf] = pba->phi_ini_scf;
       //pvecback_integration[pba->index_bi_phi_prime_scf] = pba->phi_prime_ini_scf;
      
-      printf("Using thawing ICs (minimum)\n");
-      /* Start at minimum → maximal potential energy */
-      pvecback_integration[pba->index_bi_phi_scf] = 0.3 * pba->scf_f;
-        
-      /* Initialize phi' from slow-roll attractor (conformal-time derivative).
-         Slow-roll in cosmic time: 3 H phi_dot ~= - dV/dphi
-         Convert: phi' = a * phi_dot  => phi'_ini = - a * dV/dphi / (3 H_ini)
-         Compute H_ini from initialized densities using Friedmann. */
+      printf("Using thawing ICs (from .ini phi_ini_scf)\n");
+      /* Initialize phi from user-specified initial value and keep it frozen initially */
+      pvecback_integration[pba->index_bi_phi_scf] = pba->phi_ini_scf;
+      pvecback_integration[pba->index_bi_phi_prime_scf] = pba->phi_prime_ini_scf;  // <-- use the user value instead of 0.0 (JY)
 
-      double rho_tot_ini = rho_rad;
-      if (pba->has_dcdm == _TRUE_) rho_tot_ini += pvecback_integration[pba->index_bi_rho_dcdm];
-      if (pba->has_dr == _TRUE_)   rho_tot_ini += pvecback_integration[pba->index_bi_rho_dr];
-      if (pba->has_fld == _TRUE_)  rho_tot_ini += pvecback_integration[pba->index_bi_rho_fld];
 
-      double H_ini = sqrt(rho_tot_ini - pba->K/a/a);
-      class_test(H_ini <= 0., pba->error_message, "H_ini = %e <= 0 in SCF ICs", H_ini);
-
-      pvecback_integration[pba->index_bi_phi_prime_scf] =
-        - a * dV_scf(pba, pvecback_integration[pba->index_bi_phi_scf]) / (3.0 * H_ini);
-
-      printf("IC CHECK: phi=%e  phi'=%e  (H_ini=%e, a=%e)\n",
-             pvecback_integration[pba->index_bi_phi_scf],
-             pvecback_integration[pba->index_bi_phi_prime_scf],
-             H_ini, a);
+            printf("IC CHECK: phi=%e  phi'=%e  (a=%e)\n",
+              pvecback_integration[pba->index_bi_phi_scf],
+              pvecback_integration[pba->index_bi_phi_prime_scf],
+              a);
 
       
 

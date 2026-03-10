@@ -1246,13 +1246,14 @@ int input_get_guess(double *xguess,
        * Version 3: use attractor solution
        * */
       if (ba.scf_tuning_index == 0){
-        xguess[index_guess] = sqrt(3.0/ba.Omega0_scf);
-        dxdy[index_guess] = -0.5*sqrt(3.0)*pow(ba.Omega0_scf,-1.5);
+        /* JY- For V = M^4 * cos^2(phi/f): phi_ini ~ 0.5*f is a good starting guess */
+        xguess[index_guess] = 1.0; /*JY- changed*/
+        dxdy[index_guess] = -0.2;   // dphi_ini/dOmega_scf: positive, order 1
       }
       else{
         /* Default: take the passed value as xguess and set dxdy to 1. */
         xguess[index_guess] = ba.scf_parameters[ba.scf_tuning_index];
-        dxdy[index_guess] = 1.;
+        dxdy[index_guess] = -0.2; //JY
       }
       break;
     case omega_ini_dcdm:
@@ -1483,10 +1484,29 @@ int input_try_unknown_parameters(double * unknown_parameter,
         rho_dr_today = 0.;
       output[i] = (rho_dcdm_today+rho_dr_today)/(ba.H0*ba.H0)-pfzw->target_value[i]/ba.h/ba.h;
       break;
-    case Omega_scf:
+    case Omega_scf: {
       /** In case scalar field is used to fill, pba->Omega0_scf is not equal to pfzw->target_value[i].*/
-      output[i] = ba.background_table[(ba.bt_size-1)*ba.bg_size+ba.index_bg_rho_scf]/(ba.H0*ba.H0)-ba.Omega0_scf;
+      /*output[i] = ba.background_table[(ba.bt_size-1)*ba.bg_size+ba.index_bg_rho_scf]/(ba.H0*ba.H0)-ba.Omega0_scf;
+      printf("DEBUG ROOT: phi_trial=%e Omega=%e target=%e F=%e\n",
+       ba.scf_parameters[0],
+       ba.background_table[(ba.bt_size-1)*ba.bg_size+ba.index_bg_rho_scf]/(ba.H0*ba.H0),
+       pfzw->target_value[i],
+       output[i]); */
+      double Omega_today;
+
+      Omega_today =
+        ba.background_table[(ba.bt_size-1)*ba.bg_size + ba.index_bg_rho_scf]
+          /(ba.H0*ba.H0);
+
+      output[i] = Omega_today - pfzw->target_value[i];
+
+      printf("DEBUG ROOT: phi_trial=%e Omega=%e target=%e F=%e\n",
+            ba.scf_parameters[0],
+            Omega_today,
+            pfzw->target_value[i],
+            output[i]); 
       break;
+    }
     case Omega_ini_dcdm:
     case omega_ini_dcdm:
       rho_dcdm_today = ba.background_table[(ba.bt_size-1)*ba.bg_size+ba.index_bg_rho_dcdm];
@@ -2362,7 +2382,7 @@ int input_read_parameters_species(struct file_content * pfc,
   /** Summary: */
 
   /** - Define local variables */
-  int flag1, flag2, flag3;
+  int flag1, flag2, flag3, flag4,flag5; //JY - added flag5
   double param1, param2, param3;
   char string1[_ARGUMENT_LENGTH_MAX_];
   int fileentries;
@@ -3267,6 +3287,33 @@ int input_read_parameters_species(struct file_content * pfc,
              errmsg),
         errmsg,
         errmsg);
+
+       /* Optional: initial field value read from input as 'scf_phi_ini' */
+       flag4 = _FALSE_;
+       class_call(parser_read_double(pfc,
+           "scf_phi_ini",
+           &pba->phi_ini_scf,
+           &flag4,
+           errmsg),
+         errmsg,
+         errmsg);
+       if (flag4 == _TRUE_) {
+         pba->has_phi_ini_scf = _TRUE_;
+       }
+
+       /* Optional: initial slope read from input as 'scf_phi_prime_ini' */
+       flag5 = _FALSE_;
+       class_call(parser_read_double(pfc,
+           "scf_phi_prime_ini",
+           &pba->phi_prime_ini_scf,
+           &flag5,
+           errmsg),
+         errmsg,
+         errmsg);
+       /* Set has_phi_prime_ini_scf to _TRUE_ if the flag is true or the value is non-zero */
+       if (flag5 == _TRUE_|| pba->phi_prime_ini_scf != 0.0) {
+         pba->has_phi_prime_ini_scf = _TRUE_;
+       }
 
     /* SCF tuning index (if present). Default to -1 (no shooting). */
     class_read_int("scf_tuning_index",pba->scf_tuning_index);
@@ -5949,6 +5996,8 @@ int input_default_params(struct background *pba,
   pba->scf_parameters_size = 0;
   /** 9.b.2) Initial conditions from attractor solution */
   pba->attractor_ic_scf = _TRUE_;
+  pba->has_phi_ini_scf = _FALSE_;
+  pba->has_phi_prime_ini_scf = _FALSE_;
   pba->phi_ini_scf = 1;                // MZ: initial conditions are as multiplicative
   pba->phi_prime_ini_scf = 1;          //     factors of the radiation attractor values
   /** 9.b.3) Tuning parameter */
