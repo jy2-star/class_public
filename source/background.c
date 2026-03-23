@@ -478,6 +478,26 @@ int background_functions(
       printed = 1;
     }
     phi_prime = pvecback_B[pba->index_bi_phi_prime_scf];
+    /*JY- DEBUG: trace scalar field computation step by step */
+    static int scf_debug_printed = 0;
+    if (scf_debug_printed == 0) {
+      double V_val = V_scf(pba,phi);
+      double kinetic = phi_prime*phi_prime/(2*a*a);
+      
+      printf("=== SCF DEBUG (Step 0) ===\n");
+      printf("  phi = %e\n", phi);
+      printf("  phi_prime = %e\n", phi_prime);
+      printf("  a = %e\n", a);
+      printf("  V(phi) = %e\n", V_val);
+      printf("  kinetic term = phi_prime^2/(2*a^2) = %e/%e = %e\n", 
+             phi_prime*phi_prime, 2*a*a, kinetic);
+      printf("  isfinite(V) = %d, isfinite(kinetic) = %d\n", 
+             isfinite(V_val), isfinite(kinetic));
+      printf("  rho_scf = kinetic + V = %e + %e = %e\n", 
+             kinetic, V_val, kinetic + V_val);
+      
+      scf_debug_printed = 1;
+    } /*JY- DEBUG  */
     pvecback[pba->index_bg_phi_scf] = phi; // value of the scalar field phi
     pvecback[pba->index_bg_phi_prime_scf] = phi_prime; // value of the scalar field phi derivative wrt conformal time
     pvecback[pba->index_bg_V_scf] = V_scf(pba,phi); //V_scf(pba,phi); //write here potential as function of phi
@@ -2193,11 +2213,21 @@ int background_initial_conditions(
   double rho_ncdm, p_ncdm, rho_ncdm_rel_tot=0.;
   double f,Omega_rad, rho_rad;
   int counter,is_early_enough,n_ncdm;
-  double scf_lambda;
+  double scf_lambda = 0.0;
   double rho_fld_today;
   double w_fld,dw_over_da_fld,integral_fld;
 
-  scf_lambda = pba->scf_parameters[0];
+  /** JY -Scalar field initialization (only if SCF module is enabled) */
+  if (pba->has_scf == _TRUE_) {
+    
+    if (pba->scf_parameters == NULL || pba->scf_parameters_size == 0) {
+      class_stop(pba->error_message,
+                 "SCF enabled but scf_parameters not properly allocated");
+    }
+    
+  /*scf_lambda = pba->scf_parameters[0]; */
+  /* JY- No lambda parameter in cos^2 quintessence model */
+  scf_lambda = 0.0;
 
   /* Debug: show the values read from the .ini (if any) before they may be overwritten below */
   printf("INI phi_ini_scf from input = %e\n", pba->phi_ini_scf);
@@ -2210,14 +2240,33 @@ int background_initial_conditions(
     
     double phi_max = _PI_ * pba->scf_f / 2.0;
     
-    /* clamp the shooting variable itself */
+    /* Only clamp if NOT doing shooting - let root finder explore freely during shooting */
+  if (pba->scf_tuning_index < 0) {
+    /* clamp only for non-shooting scenarios */
     if (pba->scf_parameters[0] < 1e-4)
       pba->scf_parameters[0] = 1e-4;
     else if (pba->scf_parameters[0] > phi_max*0.99)
       pba->scf_parameters[0] = phi_max*0.99;
-
-    /* assign */
-    pba->phi_ini_scf = pba->scf_parameters[0];
+  }
+    /* JY - assign - use last two entries for field ICs (works for any number of potential params) */
+    if (pba->scf_parameters_size >= 2) {
+      /* Only override phi_ini_scf from scf_parameters if not explicitly set via input */
+      if (pba->has_phi_ini_scf != _TRUE_) {
+        pba->phi_ini_scf = pba->scf_parameters[0];        /* Direct access for clean structure */
+      }
+      
+      if (pba->has_phi_prime_ini_scf != _TRUE_) {
+        pba->phi_prime_ini_scf = pba->scf_parameters[1];  /* Always second element */
+        pba->has_phi_prime_ini_scf = _TRUE_;  /* Field ICs from scf_parameters are explicit */
+      }
+      
+      
+    } else {
+      /* Fallback: original behavior if only one parameter */
+      if (pba->has_phi_ini_scf != _TRUE_) {
+        pba->phi_ini_scf = pba->scf_parameters[0];
+      }
+    } /*JY */
   }
 
   /* === SHOOTING DEBUG: add here === */
@@ -2234,6 +2283,8 @@ int background_initial_conditions(
   if (pba->has_phi_prime_ini_scf != _TRUE_) {
     pba->phi_prime_ini_scf = 0.0;
   }
+
+}
 
 
   /** - fix initial value of \f$ a \f$ */

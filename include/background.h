@@ -122,6 +122,7 @@ struct background
   int scf_parameters_size; /**< size of scf_parameters */
   double scf_M4;  /**< amplitude M^4 of the cos^2(phi/f) potential */
   double scf_f;   /**< decay constant f in cos^2(phi/f) potential */
+  double scf_shooting_parameter;  /**< shooting variable for Omega_scf */
 
   double varconst_alpha; /**< finestructure constant for varying fundamental constants */
   double varconst_me; /**< electron mass for varying fundamental constants */

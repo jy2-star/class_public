@@ -1247,10 +1247,21 @@ int input_get_guess(double *xguess,
        * */
       if (ba.scf_tuning_index == 0){
         /* JY- For V = M^4 * cos^2(phi/f): phi_ini ~ 0.5*f is a good starting guess */
-        xguess[index_guess] = 1.0; /*JY- changed*/
-        dxdy[index_guess] = -0.2;   // dphi_ini/dOmega_scf: positive, order 1
+        xguess[index_guess] = 0.5; /*JY- changed*/
+        dxdy[index_guess] = -1.0;   // dphi_ini/dOmega_scf: positive, order 1
       }
       else{
+        /* Add safety check: ensure scf_parameters is allocated */
+        if (ba.scf_parameters == NULL || ba.scf_parameters_size == 0) {
+          class_stop(errmsg, 
+                 "scf_parameters not properly allocated. "
+                 "Ensure 'scf_parameters' is defined in input file "
+                 "and scf_tuning_index >= 0.");
+        }
+        class_test(ba.scf_tuning_index >= ba.scf_parameters_size,
+               errmsg,
+               "scf_tuning_index = %d exceeds scf_parameters_size = %d",
+               ba.scf_tuning_index, ba.scf_parameters_size);
         /* Default: take the passed value as xguess and set dxdy to 1. */
         xguess[index_guess] = ba.scf_parameters[ba.scf_tuning_index];
         dxdy[index_guess] = -0.2; //JY
@@ -1494,9 +1505,15 @@ int input_try_unknown_parameters(double * unknown_parameter,
        output[i]); */
       double Omega_today;
 
-      Omega_today =
-        ba.background_table[(ba.bt_size-1)*ba.bg_size + ba.index_bg_rho_scf]
-          /(ba.H0*ba.H0);
+      /*JY- Get values at a=1 (today) */
+      double rho_phi = ba.background_table[(ba.bt_size-1)*ba.bg_size + ba.index_bg_rho_scf];
+      double rho_crit = ba.background_table[(ba.bt_size-1)*ba.bg_size + ba.index_bg_rho_crit];
+  
+      if (isfinite(rho_phi) && isfinite(rho_crit) && (rho_crit != 0.)) {
+        Omega_today = rho_phi / rho_crit;
+      } else {
+        Omega_today = 0.0;
+      } /*JY- */
 
       output[i] = Omega_today - pfzw->target_value[i];
 
@@ -2162,6 +2179,18 @@ int input_read_parameters_general(struct file_content * pfc,
     pba->h = param2;
   }
 
+    /** 5.a) SCF shooting parameter (must be read early, before shooting mechanism) */
+  class_call(parser_read_double(pfc,
+       "scf_shooting_parameter",
+       &pba->scf_shooting_parameter,
+       &flag1,
+       errmsg),
+    errmsg,
+    errmsg);
+  if (flag1 == _FALSE_) {
+    pba->scf_shooting_parameter = 0.0;  /* default value if not provided */
+  }
+
 
   /** 6) Primordial helium fraction */
   /* Read */
@@ -2382,7 +2411,7 @@ int input_read_parameters_species(struct file_content * pfc,
   /** Summary: */
 
   /** - Define local variables */
-  int flag1, flag2, flag3, flag4,flag5; //JY - added flag5
+  int flag1, flag2, flag3, flag4,flag5, flag6, flag_shoot; //JY - added flag5, flag6, flag_shoot
   double param1, param2, param3;
   char string1[_ARGUMENT_LENGTH_MAX_];
   int fileentries;
@@ -3236,6 +3265,16 @@ int input_read_parameters_species(struct file_content * pfc,
       avoid double counting dark energy. */
     pba->scf_parameters = NULL;
     pba->scf_parameters_size = 0;
+    /* Read scf_shooting_parameter if shooting is needed */
+
+    printf("DEBUG at scf_parameters reading: pfc->size = %d\n", pfc->size);
+    printf("DEBUG: Parameters in pfc:\n");
+    for (int ii = 0; ii < pfc->size; ii++) {
+      printf("  [%d] name='%s' value='%s'\n", ii, pfc->name[ii], pfc->value[ii]);
+    }
+
+    
+    
     class_call(parser_read_list_of_doubles(pfc,
                                            "scf_parameters",
                                            &(pba->scf_parameters_size),
@@ -3243,6 +3282,30 @@ int input_read_parameters_species(struct file_content * pfc,
                                            &flag1,
                                            errmsg),
                errmsg,errmsg);
+
+    
+
+    printf("DEBUG: After parser_read_list_of_doubles: size = %d, flag1 = %d\n", 
+           pba->scf_parameters_size, flag1);
+
+    /* Expand undersized array from MontePython */
+    if (pba->scf_parameters_size > 0 && pba->scf_parameters_size < 3) {
+
+      class_realloc(pba->scf_parameters,3*sizeof(double),errmsg);
+
+      /* Fill missing entries */
+      if (pba->scf_parameters_size == 1) {
+        pba->scf_parameters[1] = pba->phi_ini_scf;
+        pba->scf_parameters[2] = pba->phi_prime_ini_scf;
+      }
+
+      pba->scf_parameters_size = 3;
+    }
+
+    /* Update shooting parameter in the array if shooting is active */
+    if (pba->scf_tuning_index >= 0 && pba->scf_parameters != NULL) {
+      pba->scf_parameters[pba->scf_tuning_index] = pba->scf_shooting_parameter;
+    }
 
     /* SCF initial conditions from attractor solution (if provided) */
     class_call(parser_read_string(pfc,
@@ -3266,10 +3329,21 @@ int input_read_parameters_species(struct file_content * pfc,
         pba->phi_prime_ini_scf = pba->scf_parameters[pba->scf_parameters_size-1];
       }
     }
+        /* IMPORTANT: Always read field ICs from scf_parameters if available,
+       regardless of whether attractor_ic_scf was explicitly provided */
+    if (pba->scf_parameters_size >= 2) {
+      pba->phi_ini_scf = pba->scf_parameters[pba->scf_parameters_size-2];
+      pba->phi_prime_ini_scf = pba->scf_parameters[pba->scf_parameters_size-1];
+      pba->has_phi_ini_scf = _TRUE_;
+      pba->has_phi_prime_ini_scf = _TRUE_;
+      /* JY- IMPORTANT: disable attractor IC when explicit ICs are provided */
+      pba->attractor_ic_scf = _FALSE_;
+    }
 
       /* default potential parameters */
       pba->scf_M4 = 1e-20;
       pba->scf_f  = 1.0;
+      pba->scf_shooting_parameter = 0.0;  /* JY- default: no shooting parameter */
       flag2 = _FALSE_;
       flag3 = _FALSE_;
       class_call(parser_read_double(pfc,
@@ -3288,7 +3362,17 @@ int input_read_parameters_species(struct file_content * pfc,
         errmsg,
         errmsg);
 
+      class_call(parser_read_double(pfc,
+             "scf_shooting_parameter",
+             &pba->scf_shooting_parameter,
+             &flag_shoot,
+             errmsg),
+        errmsg,
+        errmsg);
+
        /* Optional: initial field value read from input as 'scf_phi_ini' */
+       /* Always attempt to read scf_phi_ini so parser recognizes it as valid */
+      
        flag4 = _FALSE_;
        class_call(parser_read_double(pfc,
            "scf_phi_ini",
@@ -3302,6 +3386,7 @@ int input_read_parameters_species(struct file_content * pfc,
        }
 
        /* Optional: initial slope read from input as 'scf_phi_prime_ini' */
+       
        flag5 = _FALSE_;
        class_call(parser_read_double(pfc,
            "scf_phi_prime_ini",
@@ -3314,16 +3399,32 @@ int input_read_parameters_species(struct file_content * pfc,
        if (flag5 == _TRUE_|| pba->phi_prime_ini_scf != 0.0) {
          pba->has_phi_prime_ini_scf = _TRUE_;
        }
+        
 
     /* SCF tuning index (if present). Default to -1 (no shooting). */
     class_read_int("scf_tuning_index",pba->scf_tuning_index);
+
     if (pba->scf_tuning_index >= 0) {
+
+    /* JY- Allocate and initialize scf_parameters for shooting if not provided by MontePython */
+    if (pba->scf_parameters == NULL ) {
+        pba->scf_parameters_size = 3;
+        class_alloc(pba->scf_parameters, 3 * sizeof(double), errmsg);
+        
+        /* Initialize all three entries: [lambda, phi_ini, phi_prime_ini] */
+        pba->scf_parameters[0] = pba->scf_shooting_parameter;  /* lambda (tuning parameter) */
+        pba->scf_parameters[1] = pba->phi_ini_scf;             /* phi_ini */
+        pba->scf_parameters[2] = pba->phi_prime_ini_scf;       /* phi_prime_ini */
+    }
+
+
+    
       class_test(pba->scf_tuning_index >= pba->scf_parameters_size,
                  errmsg,
                  "Tuning index 'scf_tuning_index' (%d) is larger than the number of entries (%d) in 'scf_parameters'.",
                  pba->scf_tuning_index,pba->scf_parameters_size);
-      /* Only attempt shooting if tuning index >= 0 */
-      class_read_double("scf_shooting_parameter",pba->scf_parameters[pba->scf_tuning_index]);
+      /* JY-scf_shooting_parameter already read above, just assign it to the array */
+      pba->scf_parameters[pba->scf_tuning_index] = pba->scf_shooting_parameter; 
     }
 
     /* Set has_scf only if BOTH scf_M4 and scf_f were explicitly provided.
