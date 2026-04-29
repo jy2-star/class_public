@@ -2250,15 +2250,8 @@ int background_initial_conditions(
   }
     /* JY - assign - use last two entries for field ICs (works for any number of potential params) */
     if (pba->scf_parameters_size >= 2) {
-      /* Only override phi_ini_scf from scf_parameters if not explicitly set via input */
-      if (pba->has_phi_ini_scf != _TRUE_) {
-        pba->phi_ini_scf = pba->scf_parameters[0];        /* Direct access for clean structure */
-      }
-      
-      if (pba->has_phi_prime_ini_scf != _TRUE_) {
-        pba->phi_prime_ini_scf = pba->scf_parameters[1];  /* Always second element */
-        pba->has_phi_prime_ini_scf = _TRUE_;  /* Field ICs from scf_parameters are explicit */
-      }
+      pba->phi_ini_scf = pba->scf_parameters[0];
+      pba->phi_prime_ini_scf = pba->scf_parameters[1];
       
       
     } else {
@@ -2626,7 +2619,7 @@ int background_output_titles(
 
   class_store_columntitle(titles,"(.)rho_scf",pba->has_scf);
   class_store_columntitle(titles,"(.)p_scf",pba->has_scf);
-  class_store_columntitle(titles,"(.)w_scf",pba->has_scf);
+  class_store_columntitle(titles,"(.)w_scf",_TRUE_);
   class_store_columntitle(titles,"(.)p_prime_scf",pba->has_scf);
   class_store_columntitle(titles,"phi_scf",pba->has_scf);
   class_store_columntitle(titles,"phi'_scf",pba->has_scf);
@@ -2703,7 +2696,7 @@ int background_output_data(
 
     class_store_double(dataptr,pvecback[pba->index_bg_rho_scf],pba->has_scf,storeidx);
     class_store_double(dataptr,pvecback[pba->index_bg_p_scf],pba->has_scf,storeidx);
-    class_store_double(dataptr,pvecback[pba->index_bg_w_scf],pba->has_scf,storeidx);
+    class_store_double(dataptr,pvecback[pba->index_bg_w_scf],_TRUE_,storeidx);
     class_store_double(dataptr,pvecback[pba->index_bg_p_prime_scf],pba->has_scf,storeidx);
     class_store_double(dataptr,pvecback[pba->index_bg_phi_scf],pba->has_scf,storeidx);
     class_store_double(dataptr,pvecback[pba->index_bg_phi_prime_scf],pba->has_scf,storeidx);
@@ -2951,7 +2944,7 @@ int background_derivs(
     /* DEBUG 6: Check intermediate calculation terms (check every step, print once) */
     double term1_num = phip_dbg;
     double term1_denom = a * H;
-    double term1 = term1_num / term1_denom;
+    double term1 = term1_num / (a * H); /*JY- changed */
     
     if (!isfinite(term1)) {
       printf("ERROR (Step %d): dy[phi] computation failed!\n", printed_terms);
@@ -2960,7 +2953,7 @@ int background_derivs(
 
     double term2_pt1 = 2.0 * phip_dbg;
     double term2_pt2 = a * dV_val;
-    double term2 = term2_pt1 + term2_pt2 / H;
+    double term2 = term2_pt1 + (a / H) * dV_val; /* JY- changed*/
     
     if (!isfinite(term2)) {
       printf("ERROR (Step %d): dy[phi'] computation failed!\n", printed_terms);
@@ -2970,7 +2963,7 @@ int background_derivs(
     if (printed_terms == 0) {
       printf("\n=== INTERMEDIATE TERM CHECK ===\n");
       printf("dy[phi] numerator (y[phi'])   = %e\n", term1_num);
-      printf("dy[phi] denominator (a*H)     = %e\n", term1_denom);
+      printf("dy[phi] denominator (H)     = %e\n", term1_denom);
       printf("dy[phi] result (phi'/(a*H))   = %e (finite: YES)\n", term1);
       printf("dy[phi'] term 1 (-2*phi')     = %e\n", -term2_pt1);
       printf("dy[phi'] term 2 (-(a/H)*dV)   = %e\n", -(term2_pt2/H));

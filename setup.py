@@ -54,7 +54,7 @@ with open(os.path.join(include_folder, 'common.h'), 'r') as v_file:
             break
 
 # Define cython extension and fix Python version
-classy_ext = Extension("classy._classy", [os.path.join("python", "classy.pyx")],
+classy_ext = Extension("classy.classy", [os.path.join("python", "classy.pyx")], # JY- changed - classy._classy to classy.clasyy
                        include_dirs=[np.get_include(), include_folder, heat_folder, recfast_folder, hyrec_folder],
                        libraries=liblist,
                        library_dirs=[root_folder, GCCPATH],
@@ -121,7 +121,7 @@ setup(
     cmdclass={'build_ext': classy_builder},
     ext_modules=[classy_ext],
     packages = ["classy"],
-    package_dir={"classy":"."},
+    package_dir={"classy":"classy"}, #JY- changed {"classy":"."} to {"classy": "classy"}
     package_data={'classy': pck_files},
     include_package_data=True,
     zip_safe=False
