@@ -2416,8 +2416,15 @@ int background_initial_conditions(
      
       printf("Using thawing ICs (from .ini phi_ini_scf)\n");
       /* Initialize phi from user-specified initial value and keep it frozen initially */
-      pvecback_integration[pba->index_bi_phi_scf] = pba->phi_ini_scf;
-      pvecback_integration[pba->index_bi_phi_prime_scf] = pba->phi_prime_ini_scf;  // <-- use the user value instead of 0.0 (JY)
+            /* Read from scf_parameters array directly to allow shooting to update values each iteration */
+      if (pba->scf_parameters != NULL && pba->scf_parameters_size >= 3) {
+        pvecback_integration[pba->index_bi_phi_scf] = pba->scf_parameters[1];
+        pvecback_integration[pba->index_bi_phi_prime_scf] = pba->scf_parameters[2];
+      } else {
+        /* Fallback to cached values if array not available */
+        pvecback_integration[pba->index_bi_phi_scf] = pba->phi_ini_scf;
+        pvecback_integration[pba->index_bi_phi_prime_scf] = pba->phi_prime_ini_scf;
+      }
 
 
             printf("IC CHECK: phi=%e  phi'=%e  (a=%e)\n",

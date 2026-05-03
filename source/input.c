@@ -936,6 +936,9 @@ int input_find_root(double *xzero,
              errmsg);
 
   (*fevals)++;
+  /* DEBUG: Print initial bracket state for scf_tuning_index = 1 */
+  printf("BRACKET DEBUG: x1=%e, f1=%e, dxdy=%e, dx=%e, target_Omega_scf=%e\n", 
+         x1, f1, dxdy, 1.5*f1*dxdy, pfzw->target_value[0]);
   dx = 1.5*f1*dxdy;
   if(fabs(dx) < x1*_EPSILON_){
     /* In this special case, we are very close to the correct location already
@@ -1249,6 +1252,11 @@ int input_get_guess(double *xguess,
         /* JY- For V = M^4 * cos^2(phi/f): phi_ini ~ 0.5*f is a good starting guess */
         xguess[index_guess] = 0.5; /*JY- changed*/
         dxdy[index_guess] = -1.0;   // dphi_ini/dOmega_scf: positive, order 1
+      }
+      else if (ba.scf_tuning_index == 1){
+        /* Tuning phi_ini: better initial guess and sensitivity */
+        xguess[index_guess] = 0.5 * ba.scf_f;  /* Start at reasonable phi_ini */
+        dxdy[index_guess] = -1.0;  /* Same sensitivity as lambda case */
       }
       else{
         /* Add safety check: ensure scf_parameters is allocated */
@@ -3325,15 +3333,15 @@ int input_read_parameters_species(struct file_content * pfc,
         class_test(pba->scf_parameters_size<2,
                    errmsg,
                    "Since you are not using attractor initial conditions, you must specify phi and its derivative phi' as the last two entries in scf_parameters. See explanatory.ini for more details.");
-        pba->phi_ini_scf = pba->scf_parameters[pba->scf_parameters_size-2];
-        pba->phi_prime_ini_scf = pba->scf_parameters[pba->scf_parameters_size-1];
+        pba->phi_ini_scf = pba->scf_parameters[1];
+        pba->phi_prime_ini_scf = pba->scf_parameters[2];
       }
     }
         /* IMPORTANT: Always read field ICs from scf_parameters if available,
        regardless of whether attractor_ic_scf was explicitly provided */
     if (pba->scf_parameters_size >= 2) {
-      pba->phi_ini_scf = pba->scf_parameters[pba->scf_parameters_size-2];
-      pba->phi_prime_ini_scf = pba->scf_parameters[pba->scf_parameters_size-1];
+      pba->phi_ini_scf = pba->scf_parameters[1];
+      pba->phi_prime_ini_scf = pba->scf_parameters[2];
       pba->has_phi_ini_scf = _TRUE_;
       pba->has_phi_prime_ini_scf = _TRUE_;
       /* JY- IMPORTANT: disable attractor IC when explicit ICs are provided */
@@ -3408,13 +3416,14 @@ int input_read_parameters_species(struct file_content * pfc,
 
     /* JY- Allocate and initialize scf_parameters for shooting if not provided by MontePython */
     if (pba->scf_parameters == NULL ) {
-        pba->scf_parameters_size = 3;
-        class_alloc(pba->scf_parameters, 3 * sizeof(double), errmsg);
+        pba->scf_parameters_size = 4;
+        class_alloc(pba->scf_parameters, 4 * sizeof(double), errmsg);
         
-        /* Initialize all three entries: [lambda, phi_ini, phi_prime_ini] */
+        /* Initialize all four entries: [lambda, phi_ini, phi_prime_ini, scf_f] */
         pba->scf_parameters[0] = pba->scf_shooting_parameter;  /* lambda (tuning parameter) */
         pba->scf_parameters[1] = pba->phi_ini_scf;             /* phi_ini */
         pba->scf_parameters[2] = pba->phi_prime_ini_scf;       /* phi_prime_ini */
+        pba->scf_parameters[3] = pba->scf_f;                   /* scf_f (potential parameter) */
     }
 
 
@@ -3427,9 +3436,15 @@ int input_read_parameters_species(struct file_content * pfc,
       pba->scf_parameters[pba->scf_tuning_index] = pba->scf_shooting_parameter; 
     }
 
+        /* Extract scf_f from scf_parameters if 4 elements are provided (e.g., from Cobaya MCMC) */
+    if (pba->scf_parameters_size >= 4) {
+      pba->scf_f = pba->scf_parameters[3];
+            printf("SCF potential parameter scf_f updated from array: scf_f = %e\n", pba->scf_f);
+    }
+
     /* Set has_scf only if BOTH scf_M4 and scf_f were explicitly provided.
        Do NOT enable SCF if only scf_parameters or attractor_ic_scf is present. */
-    if ((flag2 == _TRUE_) && (flag3 == _TRUE_)){
+    if ((flag2 == _TRUE_) && ((flag3 == _TRUE_) || (pba->scf_parameters_size >= 4))){
       pba->has_scf = _TRUE_;
      /* Force Omega_scf to be computed dynamically and ensure Omega_Lambda is 0 */
      pba->Omega0_scf = 0.;
