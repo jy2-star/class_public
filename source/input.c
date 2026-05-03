@@ -6118,7 +6118,7 @@ int input_default_params(struct background *pba,
   pba->phi_prime_ini_scf = 1;          //     factors of the radiation attractor values
   /** 9.b.3) Tuning parameter */
   pba->scf_tuning_index = -1;
-
+  pba->scf_shooting_parameter = 0.0;  /* Default: no shooting parameter */
   /**
    * Deafult to input_read_parameters_heating
    */

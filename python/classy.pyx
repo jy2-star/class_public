@@ -554,6 +554,18 @@ cdef class Class:
         # (And then we successively keep track of the ones we allocate additionally)
         self.allocated = True
 
+        #JY- Zero-initialize all structures to prevent garbage uninitialized values
+        memset(&self.ba, 0, sizeof(background))
+        memset(&self.pr, 0, sizeof(precision))
+        memset(&self.th, 0, sizeof(thermodynamics))
+        memset(&self.pt, 0, sizeof(perturbations))
+        memset(&self.pm, 0, sizeof(primordial))
+        memset(&self.fo, 0, sizeof(fourier))
+        memset(&self.tr, 0, sizeof(transfer))
+        memset(&self.hr, 0, sizeof(harmonic))
+        memset(&self.le, 0, sizeof(lensing))
+        memset(&self.sd, 0, sizeof(distortions))
+
         # --------------------------------------------------------------------
         # Check the presence for all CLASS modules in the list 'level'. If a
         # module is found in level, executure its "_init" method.
