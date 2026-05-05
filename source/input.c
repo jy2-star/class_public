@@ -3416,14 +3416,15 @@ int input_read_parameters_species(struct file_content * pfc,
 
     /* JY- Allocate and initialize scf_parameters for shooting if not provided by MontePython */
     if (pba->scf_parameters == NULL ) {
-        pba->scf_parameters_size = 4;
-        class_alloc(pba->scf_parameters, 4 * sizeof(double), errmsg);
+        pba->scf_parameters_size = 5;
+        class_alloc(pba->scf_parameters, 5 * sizeof(double), errmsg);
         
-        /* Initialize all four entries: [lambda, phi_ini, phi_prime_ini, scf_f] */
+        /* Initialize all five entries: [lambda, phi_ini, phi_prime_ini, scf_f, scf_M4] */
         pba->scf_parameters[0] = pba->scf_shooting_parameter;  /* lambda (tuning parameter) */
         pba->scf_parameters[1] = pba->phi_ini_scf;             /* phi_ini */
         pba->scf_parameters[2] = pba->phi_prime_ini_scf;       /* phi_prime_ini */
         pba->scf_parameters[3] = pba->scf_f;                   /* scf_f (potential parameter) */
+        pba->scf_parameters[4] = pba->scf_M4;                  /* scf_M4 (potential parameter) */
     }
 
 
@@ -3442,9 +3443,16 @@ int input_read_parameters_species(struct file_content * pfc,
             printf("SCF potential parameter scf_f updated from array: scf_f = %e\n", pba->scf_f);
     }
 
+    /* Extract scf_M4 from scf_parameters if 5 elements are provided (e.g., from Cobaya MCMC) */
+    if (pba->scf_parameters_size >= 5) {
+      pba->scf_M4 = pba->scf_parameters[4];
+      flag2 = _TRUE_;  /* Set flag2 to indicate scf_M4 was provided */
+      printf("SCF coupling parameter scf_M4 updated from array: scf_M4 = %e\n", pba->scf_M4);
+    }
+
     /* Set has_scf only if BOTH scf_M4 and scf_f were explicitly provided.
        Do NOT enable SCF if only scf_parameters or attractor_ic_scf is present. */
-    if ((flag2 == _TRUE_) && ((flag3 == _TRUE_) || (pba->scf_parameters_size >= 4))){
+    if ((flag2 == _TRUE_) && ((flag3 == _TRUE_) ||  (pba->scf_parameters_size >= 4))){
       pba->has_scf = _TRUE_;
      /* Force Omega_scf to be computed dynamically and ensure Omega_Lambda is 0 */
      pba->Omega0_scf = 0.;
