@@ -936,9 +936,7 @@ int input_find_root(double *xzero,
              errmsg);
 
   (*fevals)++;
-  /* DEBUG: Print initial bracket state for scf_tuning_index = 1 */
-  printf("BRACKET DEBUG: x1=%e, f1=%e, dxdy=%e, dx=%e, target_Omega_scf=%e\n", 
-         x1, f1, dxdy, 1.5*f1*dxdy, pfzw->target_value[0]);
+  
   dx = 1.5*f1*dxdy;
   if(fabs(dx) < x1*_EPSILON_){
     /* In this special case, we are very close to the correct location already
@@ -1544,12 +1542,7 @@ int input_try_unknown_parameters(double * unknown_parameter,
 
       output[i] = Omega_today - target_Omega_scf;
 
-      printf("DEBUG ROOT: phi_trial=%e Omega=%e target=%e (1-%.4e-%.4e) F=%e\n",
-            ba.scf_parameters[0],
-            Omega_today,
-            target_Omega_scf,
-            Omega_m, Omega_r,
-            output[i]); 
+      
       break;
     }
     case Omega_ini_dcdm:
@@ -3325,11 +3318,7 @@ int input_read_parameters_species(struct file_content * pfc,
          pba->has_phi_prime_ini_scf = _TRUE_;
        }
 
-    printf("DEBUG at scf_parameters reading: pfc->size = %d\n", pfc->size);
-    printf("DEBUG: Parameters in pfc:\n");
-    for (int ii = 0; ii < pfc->size; ii++) {
-      printf("  [%d] name='%s' value='%s'\n", ii, pfc->name[ii], pfc->value[ii]);
-    }
+    
 
     
     
@@ -3343,8 +3332,7 @@ int input_read_parameters_species(struct file_content * pfc,
 
     
 
-    printf("DEBUG: After parser_read_list_of_doubles: size = %d, flag1 = %d\n", 
-           pba->scf_parameters_size, flag1);
+    
 
     /* Expand undersized array from MontePython */
     if (pba->scf_parameters_size > 0 && pba->scf_parameters_size < 3) {
@@ -3467,7 +3455,6 @@ int input_read_parameters_species(struct file_content * pfc,
         /* Extract scf_f from scf_parameters if 4 elements are provided (e.g., from Cobaya MCMC) */
     if (pba->scf_parameters_size >= 4) {
       pba->scf_f = pba->scf_parameters[3];
-            printf("SCF potential parameter scf_f updated from array: scf_f = %e\n", pba->scf_f);
     }
 
     /* Extract scf_M4 from scf_parameters if 5 elements are provided (e.g., from Cobaya MCMC) */
@@ -3475,7 +3462,6 @@ int input_read_parameters_species(struct file_content * pfc,
       pba->scf_M4 = pba->scf_parameters[4];
             /* flag2 is reserved for Omega_fld — do NOT set it here */
       //flag2 = _TRUE_;  /* Set flag2 to indicate scf_M4 was provided */
-      printf("SCF coupling parameter scf_M4 updated from array: scf_M4 = %e\n", pba->scf_M4);
     }
 
     /* Set has_scf if scf_M4 and scf_f were explicitly provided OR

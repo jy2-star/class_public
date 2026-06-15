@@ -472,32 +472,9 @@ int background_functions(
   /* Scalar field */
   if (pba->has_scf == _TRUE_) {
     phi = pvecback_B[pba->index_bi_phi_scf];
-    static int printed = 0;
-    if (printed == 0) {
-      printf("DEBUG phi_ini = %e\n",phi);
-      printed = 1;
-    }
+    
     phi_prime = pvecback_B[pba->index_bi_phi_prime_scf];
-    /*JY- DEBUG: trace scalar field computation step by step */
-    static int scf_debug_printed = 0;
-    if (scf_debug_printed == 0) {
-      double V_val = V_scf(pba,phi);
-      double kinetic = phi_prime*phi_prime/(2*a*a);
-      
-      printf("=== SCF DEBUG (Step 0) ===\n");
-      printf("  phi = %e\n", phi);
-      printf("  phi_prime = %e\n", phi_prime);
-      printf("  a = %e\n", a);
-      printf("  V(phi) = %e\n", V_val);
-      printf("  kinetic term = phi_prime^2/(2*a^2) = %e/%e = %e\n", 
-             phi_prime*phi_prime, 2*a*a, kinetic);
-      printf("  isfinite(V) = %d, isfinite(kinetic) = %d\n", 
-             isfinite(V_val), isfinite(kinetic));
-      printf("  rho_scf = kinetic + V = %e + %e = %e\n", 
-             kinetic, V_val, kinetic + V_val);
-      
-      scf_debug_printed = 1;
-    } /*JY- DEBUG  */
+    
     pvecback[pba->index_bg_phi_scf] = phi; // value of the scalar field phi
     pvecback[pba->index_bg_phi_prime_scf] = phi_prime; // value of the scalar field phi derivative wrt conformal time
     pvecback[pba->index_bg_V_scf] = V_scf(pba,phi); //V_scf(pba,phi); //write here potential as function of phi
@@ -2200,8 +2177,7 @@ int background_initial_conditions(
                                   double * loga_ini
                                   ) {
 
-  printf("ENTRY background_initial_conditions: has_scf=%d size=%d phi_ini=%e scf_par[0]=%e scf_par[1]=%e scf_par[2]=%e\n", pba->has_scf, pba->scf_parameters_size, pba->phi_ini_scf, pba->scf_parameters ? pba->scf_parameters[0] : -999, pba->scf_parameters ? pba->scf_parameters[1] : -999, pba->scf_parameters ? pba->scf_parameters[2] : -999);
-  printf("DEBUG has_scf = %d\n", pba->has_scf);
+  
                                   
 
   /** Summary: */
@@ -2238,16 +2214,12 @@ int background_initial_conditions(
       }
     }
     
-  printf("AFTER NULL CHECK: scf_parameters_size=%d phi_ini=%e\n", pba->scf_parameters_size, pba->phi_ini_scf);
   /*scf_lambda = pba->scf_parameters[0]; */
   /* JY- No lambda parameter in cos^2 quintessence model */
   scf_lambda = 0.0;
 
   /* Debug: show the values read from the .ini (if any) before they may be overwritten below */
-  printf("INI phi_ini_scf from input = %e\n", pba->phi_ini_scf);
-  printf("INI DEBUG: scf_parameters_size=%d scf_parameters=%p\n", pba->scf_parameters_size, (void*)pba->scf_parameters);
-  printf("INI phi_prime_ini_scf from input = %e (has flag %d)\n",
-         pba->phi_prime_ini_scf,pba->has_phi_prime_ini_scf);
+  
 
   /* Only compute default thawing IC if user did not provide scf_phi_ini */
   //if (pba->has_phi_ini_scf != _TRUE_) 
@@ -2264,10 +2236,7 @@ int background_initial_conditions(
       pba->scf_parameters[0] = phi_max*0.99;
   }
     /* JY - assign - use last two entries for field ICs (works for any number of potential params) */
-    printf("BG DEBUG2: scf_parameters_size=%d scf_parameters=%p\n", pba->scf_parameters_size, (void*)pba->scf_parameters);
-    fprintf(stderr, "BG DEBUG2 stderr: scf_parameters_size=%d\n", pba->scf_parameters_size);
     if (pba->scf_parameters_size >= 3) {
-      printf("BG DEBUG: scf_parameters[1]=%e scf_parameters[2]=%e phi_ini_scf=%e\n", pba->scf_parameters[1], pba->scf_parameters[2], pba->phi_ini_scf);
       /* phi_ini_scf is correctly set by input.c (0.5 on first call, shooting value later)
          Only use scf_parameters[1] if it is non-zero (i.e. shooting has updated it) */
       if (pba->scf_parameters[1] != 0.0) {
@@ -2286,9 +2255,7 @@ int background_initial_conditions(
   }
 
   /* === SHOOTING DEBUG: add here === */
-  printf("SHOOT DEBUG: scf_parameters[0] = %e\n", pba->scf_parameters[0]);
-  printf("SHOOT DEBUG: scf_lambda        = %e\n", scf_lambda);
-  printf("SHOOT DEBUG: phi_ini_scf       = %e\n", pba->phi_ini_scf);
+  
   /* Note: Omega_phi is not yet computed here, it is only available  */
   /* after background_solve(), so we cannot print it at this point.  */
   /* It gets printed later via: DEBUG Omega_phi(today) = ...         */
@@ -2437,7 +2404,6 @@ int background_initial_conditions(
       //pvecback_integration[pba->index_bi_phi_scf] = pba->phi_ini_scf;
       //pvecback_integration[pba->index_bi_phi_prime_scf] = pba->phi_prime_ini_scf;
      
-      printf("Using thawing ICs: phi_ini_scf=%e at IC setting\n", pba->phi_ini_scf);
       /* Initialize phi from user-specified initial value and keep it frozen initially */
             /* Read from scf_parameters array directly to allow shooting to update values each iteration */
       /* Always use phi_ini_scf directly — it is correctly set by input.c
@@ -2446,10 +2412,7 @@ int background_initial_conditions(
         pvecback_integration[pba->index_bi_phi_prime_scf] = pba->phi_prime_ini_scf;
 
 
-            printf("IC CHECK: phi=%e  phi'=%e  (a=%e)\n",
-              pvecback_integration[pba->index_bi_phi_scf],
-              pvecback_integration[pba->index_bi_phi_prime_scf],
-              a);
+            
 
       
 
@@ -2795,12 +2758,7 @@ int background_derivs(
   pba =  pbpaw->pba;
   pvecback = pbpaw->pvecback;
 
-  static int printed_sizes = 0;
-  if (printed_sizes == 0) {
-    printf("DEBUG BI size = %d\n",pba->bi_size);
-    printf("DEBUG BG size = %d\n",pba->bg_size);
-  printed_sizes = 1;
-  }
+  
 
 
   /** - scale factor a (in fact, given our normalisation conventions, this stands for a/a_0) */
@@ -2858,144 +2816,39 @@ int background_derivs(
   if (pba->has_scf == _TRUE_) {
     /** - Scalar field equation: \f$ \phi'' + 2 a H \phi' + a^2 dV = 0 \f$  (note H is wrt cosmological time)
         written as \f$ d\phi/dlna = phi' / (aH) \f$ and \f$ d\phi'/dlna = -2*phi' - (a/H) dV \f$ */
-    static int printed_index = 0;
-    static int printed_pointer = 0;
-    static int printed_h_value = 0;
-    static int printed_y_array = 0;
-    static int printed_potential = 0;
-    static int printed_terms = 0;
-    static int printed_bounds = 0;
-    static int printed_write = 0;
-
-    /* DEBUG 1: Validate index_bi_phi_scf */
-    if (printed_index == 0) {
-      printf("\n=== SCF INDEX VALIDATION ===\n");
-      printf("pba->has_scf = %d\n", pba->has_scf);
-      printf("pba->bi_size = %d\n", pba->bi_size);
-      printf("pba->index_bi_phi_scf = %d\n", pba->index_bi_phi_scf);
-      printf("pba->index_bi_phi_prime_scf = %d\n", pba->index_bi_phi_prime_scf);
-      
-      if (pba->index_bi_phi_scf < 0 || pba->index_bi_phi_scf >= pba->bi_size) {
-        printf("ERROR: index_bi_phi_scf=%d is out of bounds [0, %d)\n", 
-               pba->index_bi_phi_scf, pba->bi_size);
-        exit(1);
-      }
-      if (pba->index_bi_phi_prime_scf < 0 || pba->index_bi_phi_prime_scf >= pba->bi_size) {
-        printf("ERROR: index_bi_phi_prime_scf=%d is out of bounds [0, %d)\n", 
-               pba->index_bi_phi_prime_scf, pba->bi_size);
-        exit(1);
-      }
-      printf("✓ All indices valid\n");
-      printed_index = 1;
-    }
-
-    /* DEBUG 2: Validate y and dy pointer accessibility */
-    if (printed_pointer == 0) {
-      printf("\n=== POINTER VALIDATION ===\n");
-      printf("y pointer = %p (non-null: %s)\n", (void*)y, y != NULL ? "YES" : "NO");
-      printf("dy pointer = %p (non-null: %s)\n", (void*)dy, dy != NULL ? "YES" : "NO");
-      printf("pba pointer = %p (non-null: %s)\n", (void*)pba, pba != NULL ? "YES" : "NO");
-      
-      if (y == NULL || dy == NULL || pba == NULL) {
-        printf("ERROR: NULL pointer detected!\n");
-        exit(1);
-      }
-      printed_pointer = 1;
-    }
-
-    /* DEBUG 3: Check H value and division safety (check every step, print once) */
-    if (H <= 0.0) {
-      printf("ERROR (Step %d): H=%e is non-positive! Division by H will fail.\n", printed_h_value, H);
-      exit(1);
-    }
-    if (!isfinite(H)) {
-      printf("ERROR (Step %d): H=%e is not finite (NaN or Inf)!\n", printed_h_value, H);
-      exit(1);
-    }
-    if (!isfinite(a)) {
-      printf("ERROR (Step %d): a=%e is not finite (NaN or Inf)!\n", printed_h_value, a);
-      exit(1);
-    }
     
-    if (printed_h_value == 0) {
-      printf("\n=== H VALUE CHECK (all values finite and positive) ===\n");
-      printf("H = %e\n", H);
-      printf("a = %e\n", a);
-      printf("a*H = %e\n", a*H);
-      printed_h_value = 1;
-    }
+
+    
+
+    
+
+    
 
     double phi_dbg = y[pba->index_bi_phi_scf];
     double phip_dbg = y[pba->index_bi_phi_prime_scf];
 
-    /* DEBUG 4: Validate y array element values (check every step, print once) */
-    if (!isfinite(phi_dbg)) {
-      printf("ERROR (Step %d): phi is not finite! \n", printed_y_array);
-      exit(1);
-    }
-    if (!isfinite(phip_dbg)) {
-      printf("ERROR (Step %d): phi' is not finite!\n", printed_y_array);
-      exit(1);
-    }
     
-    if (printed_y_array == 0) {
-      printf("\n=== Y ARRAY VALUE CHECK ===\n");
-      printf("y[%d] (phi)       = %e (finite: YES)\n", 
-             pba->index_bi_phi_scf, phi_dbg);
-      printf("y[%d] (phi')      = %e (finite: YES)\n", 
-             pba->index_bi_phi_prime_scf, phip_dbg);
-      printed_y_array = 1;
-    }
 
     /* DEBUG 5: Check potential function calls (check every step, print once) */
     double V_val = V_scf(pba, phi_dbg);
     double dV_val = dV_scf(pba, phi_dbg);
     
-    if (!isfinite(V_val)) {
-      printf("ERROR (Step %d): V(phi) is not finite!\n", printed_potential);
-      exit(1);
-    }
-    if (!isfinite(dV_val)) {
-      printf("ERROR (Step %d): dV(phi) is not finite!\n", printed_potential);
-      exit(1);
-    }
     
-    if (printed_potential == 0) {
-      printf("\n=== POTENTIAL FUNCTION VALIDATION ===\n");
-      printf("V_scf(pba, phi)  = %e (finite: YES)\n", V_val);
-      printf("dV_scf(pba, phi) = %e (finite: YES)\n", dV_val);
-      printed_potential = 1;
-    }
 
     /* DEBUG 6: Check intermediate calculation terms (check every step, print once) */
     double term1_num = phip_dbg;
     double term1_denom = a * H;
     double term1 = term1_num / (a * H); /*JY- changed */
     
-    if (!isfinite(term1)) {
-      printf("ERROR (Step %d): dy[phi] computation failed!\n", printed_terms);
-      exit(1);
-    }
+    
 
     double term2_pt1 = 2.0 * phip_dbg;
     double term2_pt2 = a * dV_val;
     double term2 = term2_pt1 + (a / H) * dV_val; /* JY- changed*/
     
-    if (!isfinite(term2)) {
-      printf("ERROR (Step %d): dy[phi'] computation failed!\n", printed_terms);
-      exit(1);
-    }
     
-    if (printed_terms == 0) {
-      printf("\n=== INTERMEDIATE TERM CHECK ===\n");
-      printf("dy[phi] numerator (y[phi'])   = %e\n", term1_num);
-      printf("dy[phi] denominator (H)     = %e\n", term1_denom);
-      printf("dy[phi] result (phi'/(a*H))   = %e (finite: YES)\n", term1);
-      printf("dy[phi'] term 1 (-2*phi')     = %e\n", -term2_pt1);
-      printf("dy[phi'] term 2 (-(a/H)*dV)   = %e\n", -(term2_pt2/H));
-      printf("dy[phi'] result               = %e (finite: YES)\n", -term2);
-      printed_terms = 1;
-    }
+    
+    
 
     /* DEBUG 7: Check dy array bounds before write (check every step, print once) */
     if (pba->index_bi_phi_scf < 0 || pba->index_bi_phi_scf >= pba->bi_size) {
@@ -3007,27 +2860,15 @@ int background_derivs(
       exit(1);
     }
     
-    if (printed_bounds == 0) {
-      printf("\n=== DY ARRAY BOUNDS CHECK ===\n");
-      printf("✓ dy array write indices are valid\n");
-      printed_bounds = 1;
-    }
+    
 
     /* Perform the actual ODE integration */
-    if (printed_write == 0) {
-      printf("\n=== WRITING TO DY ARRAY ===\n");
-      printed_write = 1;
-    }
+    
     
     dy[pba->index_bi_phi_scf] = term1;
     dy[pba->index_bi_phi_prime_scf] = -term2;
     
-    if (printed_write == 1) {
-      printf("✓ dy[%d] = %e, dy[%d] = %e written successfully\n", 
-             pba->index_bi_phi_scf, dy[pba->index_bi_phi_scf],
-             pba->index_bi_phi_prime_scf, dy[pba->index_bi_phi_prime_scf]);
-      printed_write = 2;
-    }
+    
   }
 
   return _SUCCESS_;
@@ -3303,8 +3144,7 @@ double ddV_e_scf(struct background *pba,
 double V_p_scf(
                struct background *pba,
                double phi) {
-  printf("DEBUG V call: phi=%e  f=%e\n",
-          phi,pba->scf_f);              
+               
   return pba->scf_M4 * pow(cos(phi/pba->scf_f),2.0);
 }
 
