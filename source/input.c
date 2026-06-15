@@ -1254,9 +1254,9 @@ int input_get_guess(double *xguess,
         dxdy[index_guess] = -1.0;   // dphi_ini/dOmega_scf: positive, order 1
       }
       else if (ba.scf_tuning_index == 1){
-        /* Tuning phi_ini: better initial guess and sensitivity */
-        xguess[index_guess] = 0.5 * ba.scf_f;  /* Start at reasonable phi_ini */
-        dxdy[index_guess] = -1.0;  /* Same sensitivity as lambda case */
+        /* Use value from scf_parameters array as initial guess, conservative sensitivity */
+        xguess[index_guess] = ba.scf_parameters[ba.scf_tuning_index];
+        dxdy[index_guess] = -1.0;  /* dφ/dΩ ≈ -5 for cos^2 potential */
       }
       else{
         /* Add safety check: ensure scf_parameters is allocated */
@@ -1503,32 +1503,52 @@ int input_try_unknown_parameters(double * unknown_parameter,
         rho_dr_today = 0.;
       output[i] = (rho_dcdm_today+rho_dr_today)/(ba.H0*ba.H0)-pfzw->target_value[i]/ba.h/ba.h;
       break;
-    case Omega_scf: {
-      /** In case scalar field is used to fill, pba->Omega0_scf is not equal to pfzw->target_value[i].*/
-      /*output[i] = ba.background_table[(ba.bt_size-1)*ba.bg_size+ba.index_bg_rho_scf]/(ba.H0*ba.H0)-ba.Omega0_scf;
-      printf("DEBUG ROOT: phi_trial=%e Omega=%e target=%e F=%e\n",
-       ba.scf_parameters[0],
-       ba.background_table[(ba.bt_size-1)*ba.bg_size+ba.index_bg_rho_scf]/(ba.H0*ba.H0),
-       pfzw->target_value[i],
-       output[i]); */
-      double Omega_today;
+      /*JY-changed  */
+      case Omega_scf: {
+      double Omega_today, Omega_m, Omega_r;
+      double rho_phi, rho_crit, rho_g_today, rho_ur_today;
+      
+      /* Compute target: Omega_scf = 1 - Omega_m - Omega_r (- other components) */
+      double Omega_ncdm = 0.0;
+      int n_ncdm;
+      for (n_ncdm = 0; n_ncdm < ba.N_ncdm; n_ncdm++)
+        Omega_ncdm += ba.Omega0_ncdm[n_ncdm];
+      Omega_m = ba.Omega0_b + ba.Omega0_cdm + Omega_ncdm;
+      
+      rho_crit = ba.background_table[(ba.bt_size-1)*ba.bg_size + ba.index_bg_rho_crit];
+      rho_g_today = ba.background_table[(ba.bt_size-1)*ba.bg_size + ba.index_bg_rho_g];
+      
+      if (rho_crit != 0.) {
+        Omega_r = rho_g_today / rho_crit;
+        if (ba.has_ur == _TRUE_) {
+          rho_ur_today = ba.background_table[(ba.bt_size-1)*ba.bg_size + ba.index_bg_rho_ur];
+          Omega_r += rho_ur_today / rho_crit;
+        }
+      } else {
+        Omega_r = 0.0;
+      }
+      
+      double target_Omega_scf = 1.0 - Omega_m - Omega_r - ba.Omega0_lambda ;
 
-      /*JY- Get values at a=1 (today) */
-      double rho_phi = ba.background_table[(ba.bt_size-1)*ba.bg_size + ba.index_bg_rho_scf];
-      double rho_crit = ba.background_table[(ba.bt_size-1)*ba.bg_size + ba.index_bg_rho_crit];
-  
+      
+      
+      
+      /* Compare computed Omega_scf from integration to internal target */
+      rho_phi = ba.background_table[(ba.bt_size-1)*ba.bg_size + ba.index_bg_rho_scf];
+      
       if (isfinite(rho_phi) && isfinite(rho_crit) && (rho_crit != 0.)) {
         Omega_today = rho_phi / rho_crit;
       } else {
         Omega_today = 0.0;
-      } /*JY- */
+      }
 
-      output[i] = Omega_today - pfzw->target_value[i];
+      output[i] = Omega_today - target_Omega_scf;
 
-      printf("DEBUG ROOT: phi_trial=%e Omega=%e target=%e F=%e\n",
+      printf("DEBUG ROOT: phi_trial=%e Omega=%e target=%e (1-%.4e-%.4e) F=%e\n",
             ba.scf_parameters[0],
             Omega_today,
-            pfzw->target_value[i],
+            target_Omega_scf,
+            Omega_m, Omega_r,
             output[i]); 
       break;
     }
@@ -3275,6 +3295,36 @@ int input_read_parameters_species(struct file_content * pfc,
     pba->scf_parameters_size = 0;
     /* Read scf_shooting_parameter if shooting is needed */
 
+    /* Optional: initial field value read from input as 'scf_phi_ini' */
+       /* Always attempt to read scf_phi_ini so parser recognizes it as valid */
+      
+       flag4 = _FALSE_;
+       class_call(parser_read_double(pfc,
+           "scf_phi_ini",
+           &pba->phi_ini_scf,
+           &flag4,
+           errmsg),
+         errmsg,
+         errmsg);
+       if (flag4 == _TRUE_) {
+         pba->has_phi_ini_scf = _TRUE_;
+       }
+
+       /* Optional: initial slope read from input as 'scf_phi_prime_ini' */
+       
+       flag5 = _FALSE_;
+       class_call(parser_read_double(pfc,
+           "scf_phi_prime_ini",
+           &pba->phi_prime_ini_scf,
+           &flag5,
+           errmsg),
+         errmsg,
+         errmsg);
+      /* Set has_phi_prime_ini_scf to _TRUE_ if the flag is true or the value is non-zero */
+       if (flag5 == _TRUE_|| pba->phi_prime_ini_scf != 0.0) {
+         pba->has_phi_prime_ini_scf = _TRUE_;
+       }
+
     printf("DEBUG at scf_parameters reading: pfc->size = %d\n", pfc->size);
     printf("DEBUG: Parameters in pfc:\n");
     for (int ii = 0; ii < pfc->size; ii++) {
@@ -3310,9 +3360,13 @@ int input_read_parameters_species(struct file_content * pfc,
       pba->scf_parameters_size = 3;
     }
 
-    /* Update shooting parameter in the array if shooting is active */
-    if (pba->scf_tuning_index >= 0 && pba->scf_parameters != NULL) {
+    /* Update shooting parameter in the array if shooting is active. */
+    if (pba->scf_tuning_index >= 0 && pba->scf_parameters != NULL ) {
       pba->scf_parameters[pba->scf_tuning_index] = pba->scf_shooting_parameter;
+      /* Also update phi_ini_scf directly so background.c reconstruction uses correct value */
+      if (pba->scf_tuning_index == 1) {
+        pba->phi_ini_scf = pba->scf_shooting_parameter;
+      }
     }
 
     /* SCF initial conditions from attractor solution (if provided) */
@@ -3330,7 +3384,7 @@ int input_read_parameters_species(struct file_content * pfc,
       else {
         pba->attractor_ic_scf = _FALSE_;
         /* if manual ICs, ensure provided */
-        class_test(pba->scf_parameters_size<2,
+        class_test(pba->scf_parameters_size<3,
                    errmsg,
                    "Since you are not using attractor initial conditions, you must specify phi and its derivative phi' as the last two entries in scf_parameters. See explanatory.ini for more details.");
         pba->phi_ini_scf = pba->scf_parameters[1];
@@ -3339,7 +3393,7 @@ int input_read_parameters_species(struct file_content * pfc,
     }
         /* IMPORTANT: Always read field ICs from scf_parameters if available,
        regardless of whether attractor_ic_scf was explicitly provided */
-    if (pba->scf_parameters_size >= 2) {
+    if (pba->scf_parameters_size >= 3) {
       pba->phi_ini_scf = pba->scf_parameters[1];
       pba->phi_prime_ini_scf = pba->scf_parameters[2];
       pba->has_phi_ini_scf = _TRUE_;
@@ -3378,35 +3432,8 @@ int input_read_parameters_species(struct file_content * pfc,
         errmsg,
         errmsg);
 
-       /* Optional: initial field value read from input as 'scf_phi_ini' */
-       /* Always attempt to read scf_phi_ini so parser recognizes it as valid */
-      
-       flag4 = _FALSE_;
-       class_call(parser_read_double(pfc,
-           "scf_phi_ini",
-           &pba->phi_ini_scf,
-           &flag4,
-           errmsg),
-         errmsg,
-         errmsg);
-       if (flag4 == _TRUE_) {
-         pba->has_phi_ini_scf = _TRUE_;
-       }
-
-       /* Optional: initial slope read from input as 'scf_phi_prime_ini' */
        
-       flag5 = _FALSE_;
-       class_call(parser_read_double(pfc,
-           "scf_phi_prime_ini",
-           &pba->phi_prime_ini_scf,
-           &flag5,
-           errmsg),
-         errmsg,
-         errmsg);
-       /* Set has_phi_prime_ini_scf to _TRUE_ if the flag is true or the value is non-zero */
-       if (flag5 == _TRUE_|| pba->phi_prime_ini_scf != 0.0) {
-         pba->has_phi_prime_ini_scf = _TRUE_;
-       }
+       
         
 
     /* SCF tuning index (if present). Default to -1 (no shooting). */
@@ -3446,13 +3473,15 @@ int input_read_parameters_species(struct file_content * pfc,
     /* Extract scf_M4 from scf_parameters if 5 elements are provided (e.g., from Cobaya MCMC) */
     if (pba->scf_parameters_size >= 5) {
       pba->scf_M4 = pba->scf_parameters[4];
-      flag2 = _TRUE_;  /* Set flag2 to indicate scf_M4 was provided */
+            /* flag2 is reserved for Omega_fld — do NOT set it here */
+      //flag2 = _TRUE_;  /* Set flag2 to indicate scf_M4 was provided */
       printf("SCF coupling parameter scf_M4 updated from array: scf_M4 = %e\n", pba->scf_M4);
     }
 
-    /* Set has_scf only if BOTH scf_M4 and scf_f were explicitly provided.
-       Do NOT enable SCF if only scf_parameters or attractor_ic_scf is present. */
-    if ((flag2 == _TRUE_) && ((flag3 == _TRUE_) ||  (pba->scf_parameters_size >= 4))){
+    /* Set has_scf if scf_M4 and scf_f were explicitly provided OR
+       if all 5 scf_parameters were passed (e.g. from Cobaya MCMC array). */
+    if ((flag2 == _TRUE_ || pba->scf_parameters_size >= 5) &&
+        ((flag3 == _TRUE_) || (pba->scf_parameters_size >= 4))){
       pba->has_scf = _TRUE_;
      /* Force Omega_scf to be computed dynamically and ensure Omega_Lambda is 0 */
      pba->Omega0_scf = 0.;
@@ -3501,10 +3530,21 @@ int input_read_parameters_species(struct file_content * pfc,
     }
   }
   else if (flag2 == _FALSE_) {
-    /* Fill up with fluid */
-    pba->Omega0_fld = 1. - pba->Omega0_k - Omega_tot;
+    if (pba->has_scf == _TRUE_) {
+      /* Fill up with scalar field when SCF is enabled */
+      pba->Omega0_scf = 1. - pba->Omega0_k - Omega_tot;
+    }
+    else {
+      /* Fill up with fluid */
+      pba->Omega0_fld = 1. - pba->Omega0_k - Omega_tot;
+    }
     if (input_verbose > 0){
-      printf(" -> matched budget equations by adjusting Omega_fld = %g\n",pba->Omega0_fld);
+      if (pba->has_scf == _TRUE_) {
+        printf(" -> matched budget equations by adjusting Omega_scf = %g\n",pba->Omega0_scf);
+      }
+      else {
+        printf(" -> matched budget equations by adjusting Omega_fld = %g\n",pba->Omega0_fld);
+      }
     }
   }
   else if ((flag3 == _TRUE_) && (param3 < 0.)){
@@ -6116,8 +6156,11 @@ int input_default_params(struct background *pba,
   pba->Omega_EDE = 0.;
   /** 9.b) Omega scalar field */
   /** 9.b.1) Potential parameters and initial conditions */
-  pba->scf_parameters = NULL;
-  pba->scf_parameters_size = 0;
+  /* Only reset scf_parameters if NOT in a shooting loop — preserve across iterations */
+  if (pba->scf_tuning_index < 0) {
+    pba->scf_parameters = NULL;
+    pba->scf_parameters_size = 0;
+  }
   /** 9.b.2) Initial conditions from attractor solution */
   pba->attractor_ic_scf = _TRUE_;
   pba->has_phi_ini_scf = _FALSE_;

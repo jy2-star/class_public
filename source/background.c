@@ -999,8 +999,8 @@ int background_free_input(
     if (pba->ncdm_psd_parameters!=NULL)
       free(pba->ncdm_psd_parameters);
   }
-
-  if (pba->scf_parameters != NULL) {
+  /* Don't free scf_parameters during active shooting — it contains the tuning result */
+  if (pba->scf_parameters != NULL && pba->scf_tuning_index < 0) {
     free(pba->scf_parameters);
     pba->scf_parameters = NULL;
   }
@@ -2200,6 +2200,7 @@ int background_initial_conditions(
                                   double * loga_ini
                                   ) {
 
+  printf("ENTRY background_initial_conditions: has_scf=%d size=%d phi_ini=%e scf_par[0]=%e scf_par[1]=%e scf_par[2]=%e\n", pba->has_scf, pba->scf_parameters_size, pba->phi_ini_scf, pba->scf_parameters ? pba->scf_parameters[0] : -999, pba->scf_parameters ? pba->scf_parameters[1] : -999, pba->scf_parameters ? pba->scf_parameters[2] : -999);
   printf("DEBUG has_scf = %d\n", pba->has_scf);
                                   
 
@@ -2221,16 +2222,30 @@ int background_initial_conditions(
   if (pba->has_scf == _TRUE_) {
     
     if (pba->scf_parameters == NULL || pba->scf_parameters_size == 0) {
-      class_stop(pba->error_message,
-                 "SCF enabled but scf_parameters not properly allocated");
+      if (pba->scf_tuning_index >= 0) {
+        /* During shooting iterations, scf_parameters may be temporarily NULL
+           due to input_default_params reset. Reconstruct from cached values. */
+        pba->scf_parameters_size = 5;
+        class_alloc(pba->scf_parameters, 5 * sizeof(double), pba->error_message);
+        pba->scf_parameters[0] = 0.0;
+        pba->scf_parameters[1] = pba->phi_ini_scf;
+        pba->scf_parameters[2] = pba->phi_prime_ini_scf;
+        pba->scf_parameters[3] = pba->scf_f;
+        pba->scf_parameters[4] = pba->scf_M4;
+      } else {
+        class_stop(pba->error_message,
+                   "SCF enabled but scf_parameters not properly allocated");
+      }
     }
     
+  printf("AFTER NULL CHECK: scf_parameters_size=%d phi_ini=%e\n", pba->scf_parameters_size, pba->phi_ini_scf);
   /*scf_lambda = pba->scf_parameters[0]; */
   /* JY- No lambda parameter in cos^2 quintessence model */
   scf_lambda = 0.0;
 
   /* Debug: show the values read from the .ini (if any) before they may be overwritten below */
   printf("INI phi_ini_scf from input = %e\n", pba->phi_ini_scf);
+  printf("INI DEBUG: scf_parameters_size=%d scf_parameters=%p\n", pba->scf_parameters_size, (void*)pba->scf_parameters);
   printf("INI phi_prime_ini_scf from input = %e (has flag %d)\n",
          pba->phi_prime_ini_scf,pba->has_phi_prime_ini_scf);
 
@@ -2249,9 +2264,17 @@ int background_initial_conditions(
       pba->scf_parameters[0] = phi_max*0.99;
   }
     /* JY - assign - use last two entries for field ICs (works for any number of potential params) */
-    if (pba->scf_parameters_size >= 2) {
-      pba->phi_ini_scf = pba->scf_parameters[0];
-      pba->phi_prime_ini_scf = pba->scf_parameters[1];
+    printf("BG DEBUG2: scf_parameters_size=%d scf_parameters=%p\n", pba->scf_parameters_size, (void*)pba->scf_parameters);
+    fprintf(stderr, "BG DEBUG2 stderr: scf_parameters_size=%d\n", pba->scf_parameters_size);
+    if (pba->scf_parameters_size >= 3) {
+      printf("BG DEBUG: scf_parameters[1]=%e scf_parameters[2]=%e phi_ini_scf=%e\n", pba->scf_parameters[1], pba->scf_parameters[2], pba->phi_ini_scf);
+      /* phi_ini_scf is correctly set by input.c (0.5 on first call, shooting value later)
+         Only use scf_parameters[1] if it is non-zero (i.e. shooting has updated it) */
+      if (pba->scf_parameters[1] != 0.0) {
+        pba->phi_ini_scf = pba->scf_parameters[1];
+      }
+      /* Always use phi_prime from scf_parameters[2] if available */
+      pba->phi_prime_ini_scf = pba->scf_parameters[2];
       
       
     } else {
@@ -2414,17 +2437,13 @@ int background_initial_conditions(
       //pvecback_integration[pba->index_bi_phi_scf] = pba->phi_ini_scf;
       //pvecback_integration[pba->index_bi_phi_prime_scf] = pba->phi_prime_ini_scf;
      
-      printf("Using thawing ICs (from .ini phi_ini_scf)\n");
+      printf("Using thawing ICs: phi_ini_scf=%e at IC setting\n", pba->phi_ini_scf);
       /* Initialize phi from user-specified initial value and keep it frozen initially */
             /* Read from scf_parameters array directly to allow shooting to update values each iteration */
-      if (pba->scf_parameters != NULL && pba->scf_parameters_size >= 3) {
-        pvecback_integration[pba->index_bi_phi_scf] = pba->scf_parameters[1];
-        pvecback_integration[pba->index_bi_phi_prime_scf] = pba->scf_parameters[2];
-      } else {
-        /* Fallback to cached values if array not available */
+      /* Always use phi_ini_scf directly — it is correctly set by input.c
+         and updated by the shooting algorithm each iteration */
         pvecback_integration[pba->index_bi_phi_scf] = pba->phi_ini_scf;
         pvecback_integration[pba->index_bi_phi_prime_scf] = pba->phi_prime_ini_scf;
-      }
 
 
             printf("IC CHECK: phi=%e  phi'=%e  (a=%e)\n",
