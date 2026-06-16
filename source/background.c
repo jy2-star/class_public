@@ -2850,15 +2850,7 @@ int background_derivs(
     
     
 
-    /* DEBUG 7: Check dy array bounds before write (check every step, print once) */
-    if (pba->index_bi_phi_scf < 0 || pba->index_bi_phi_scf >= pba->bi_size) {
-      printf("ERROR (Step %d): dy[%d] write is out of bounds!\n", printed_bounds, pba->index_bi_phi_scf);
-      exit(1);
-    }
-    if (pba->index_bi_phi_prime_scf < 0 || pba->index_bi_phi_prime_scf >= pba->bi_size) {
-      printf("ERROR (Step %d): dy[%d] write is out of bounds!\n", printed_bounds, pba->index_bi_phi_prime_scf);
-      exit(1);
-    }
+    
     
     
 
