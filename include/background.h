@@ -123,6 +123,9 @@ struct background
   double scf_M4;  /**< amplitude M^4 of the cos^2(phi/f) potential */
   double scf_f;   /**< decay constant f in cos^2(phi/f) potential */
   double scf_shooting_parameter;  /**< shooting variable for Omega_scf */
+  double scf_coupling_beta;       /**< Amendola β coupling between SCF and CDM (dimensionless) */
+  short  has_scf_cdm_coupling;    /**< SCF-CDM Amendola coupling active (β≠0 with has_scf && has_cdm)? */
+
 
   double varconst_alpha; /**< finestructure constant for varying fundamental constants */
   double varconst_me; /**< electron mass for varying fundamental constants */
@@ -264,6 +267,8 @@ struct background
   int index_bi_rho_fld; /**< {B} fluid density */
   int index_bi_phi_scf;       /**< {B} scalar field value */
   int index_bi_phi_prime_scf; /**< {B} scalar field derivative wrt conformal time */
+  int index_bi_rho_cdm;       /**< {B} CDM density integrated as ODE when SCF coupling is active */
+
 
   int index_bi_time;    /**< {C} proper (cosmological) time in Mpc */
   int index_bi_rs;      /**< {C} sound horizon */

@@ -434,9 +434,12 @@ int background_functions(
   p_tot += 0;
   rho_m += pvecback[pba->index_bg_rho_b];
 
-  /* cdm */
+  /* Jy-cdm */
   if (pba->has_cdm == _TRUE_) {
-    pvecback[pba->index_bg_rho_cdm] = pba->Omega0_cdm * pow(pba->H0,2) / pow(a,3);
+    if (pba->has_scf_cdm_coupling == _TRUE_)
+      pvecback[pba->index_bg_rho_cdm] = pvecback_B[pba->index_bi_rho_cdm];
+    else
+      pvecback[pba->index_bg_rho_cdm] = pba->Omega0_cdm * pow(pba->H0,2) / pow(a,3);
     rho_tot += pvecback[pba->index_bg_rho_cdm];
     p_tot += 0.;
     rho_m += pvecback[pba->index_bg_rho_cdm];
@@ -1025,6 +1028,7 @@ int background_indices(
 
   if (pba->Omega0_cdm != 0.)
     pba->has_cdm = _TRUE_;
+  
 
   if (pba->Omega0_idm != 0.)
     pba->has_idm = _TRUE_;
@@ -1045,6 +1049,12 @@ int background_indices(
      keep it enabled even if Omega0_scf is zero (we will compute it dynamically). */
   if (was_has_scf == _TRUE_)
     pba->has_scf = _TRUE_;
+
+  /* Amendola coupling requires both SCF and CDM */
+  pba->has_scf_cdm_coupling =
+      (pba->has_scf == _TRUE_ && pba->has_cdm == _TRUE_ && pba->scf_coupling_beta != 0.)
+      ? _TRUE_ : _FALSE_;
+
 
   if (pba->Omega0_lambda != 0.)
     pba->has_lambda = _TRUE_;
@@ -1205,6 +1215,8 @@ int background_indices(
 
   /* -> energy density in fluid */
   class_define_index(pba->index_bi_rho_fld,pba->has_fld,index_bi,1);
+  class_define_index(pba->index_bi_rho_cdm, pba->has_scf_cdm_coupling, index_bi, 1);
+
 
   /* -> scalar field and its derivative wrt conformal time (Zuma) */
   class_define_index(pba->index_bi_phi_scf,pba->has_scf,index_bi,1);
@@ -2337,6 +2349,10 @@ int background_initial_conditions(
     if (pba->background_verbose > 3)
       printf("Density is %g. Omega_ini=%g\n",pvecback_integration[pba->index_bi_rho_dcdm],pba->Omega_ini_dcdm);
   }
+  if (pba->has_scf_cdm_coupling == _TRUE_) {
+    pvecback_integration[pba->index_bi_rho_cdm] = pba->Omega0_cdm * pba->H0 * pba->H0 * pow(a,-3);
+  }
+
 
   if (pba->has_dr == _TRUE_) {
     if (pba->has_dcdm == _TRUE_) {
@@ -2803,10 +2819,18 @@ int background_derivs(
     dy[pba->index_bi_rho_dcdm] = -3.*y[pba->index_bi_rho_dcdm] - pba->Gamma_dcdm/H*y[pba->index_bi_rho_dcdm];
   }
 
+
   if ((pba->has_dcdm == _TRUE_) && (pba->has_dr == _TRUE_)) {
     /** - Compute dr density \f$ d\rho/dloga = -4\rho - \Gamma/H \rho \f$ */
     dy[pba->index_bi_rho_dr] = -4.*y[pba->index_bi_rho_dr]+pba->Gamma_dcdm/H*y[pba->index_bi_rho_dcdm];
   }
+  if (pba->has_scf_cdm_coupling == _TRUE_) {
+    /* Jy- d(rho_cdm)/d(lna) = -3*rho - beta*rho*phi'/(aH) */
+    dy[pba->index_bi_rho_cdm] = -3. * y[pba->index_bi_rho_cdm]
+      - pba->scf_coupling_beta * pvecback[pba->index_bg_rho_cdm]
+        * y[pba->index_bi_phi_prime_scf] / (a * H);
+  }
+
 
   if (pba->has_fld == _TRUE_) {
     /** - Compute fld density \f$ d\rho/dloga = -3 (1+w_{fld}(a)) \rho \f$ */
@@ -2857,8 +2881,14 @@ int background_derivs(
     /* Perform the actual ODE integration */
     
     
-    dy[pba->index_bi_phi_scf] = term1;
+    dy[pba->index_bi_phi_scf] = term1; //Jy
     dy[pba->index_bi_phi_prime_scf] = -term2;
+    if (pba->has_scf_cdm_coupling == _TRUE_) {
+      /* standard Amendola: d(phi')/d(lna) += beta*a*rho_cdm/H */
+      dy[pba->index_bi_phi_prime_scf] +=
+        pba->scf_coupling_beta * a * pvecback[pba->index_bg_rho_cdm] / H;
+    }
+
     
     
   }

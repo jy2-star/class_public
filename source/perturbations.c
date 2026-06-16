@@ -3918,7 +3918,7 @@ int perturbations_vector_init(
     /* cdm */
 
     class_define_index(ppv->index_pt_delta_cdm,pba->has_cdm,index_pt,1); /* cdm density */
-    class_define_index(ppv->index_pt_theta_cdm,pba->has_cdm && (ppt->gauge == newtonian),index_pt,1); /* cdm velocity */
+    class_define_index(ppv->index_pt_theta_cdm,pba->has_cdm && (ppt->gauge == newtonian || pba->has_scf_cdm_coupling == _TRUE_),index_pt,1); /* Jy-cdm velocity */
 
     /* idm */
     class_define_index(ppv->index_pt_delta_idm,pba->has_idm,index_pt,1); /* idm density */
@@ -5543,6 +5543,9 @@ int perturbations_initial_conditions(struct precision * ppr,
       ppw->pv->y[ppw->pv->index_pt_theta_b] = ppw->pv->y[ppw->pv->index_pt_theta_g];
 
       ppw->pv->y[ppw->pv->index_pt_delta_cdm] = ppr->entropy_ini+3./4.*ppw->pv->y[ppw->pv->index_pt_delta_g];
+      if (pba->has_scf_cdm_coupling == _TRUE_) // jy
+        ppw->pv->y[ppw->pv->index_pt_theta_cdm] = 0.; //jy
+
 
       if ((pba->has_ur == _TRUE_) || (pba->has_ncdm == _TRUE_)) {
 
@@ -6947,8 +6950,9 @@ int perturbations_total_stress_energy(
     /* cdm contribution */
     if (pba->has_cdm == _TRUE_) {
       ppw->delta_rho += ppw->pvecback[pba->index_bg_rho_cdm]*y[ppw->pv->index_pt_delta_cdm]; // contribution to total perturbed stress-energy
-      if (ppt->gauge == newtonian)
+      if (ppt->gauge == newtonian || pba->has_scf_cdm_coupling == _TRUE_)
         ppw->rho_plus_p_theta = ppw->rho_plus_p_theta + ppw->pvecback[pba->index_bg_rho_cdm]*y[ppw->pv->index_pt_theta_cdm]; // contribution to total perturbed stress-energy
+
 
       ppw->rho_plus_p_tot += ppw->pvecback[pba->index_bg_rho_cdm];
 
@@ -6957,7 +6961,7 @@ int perturbations_total_stress_energy(
         rho_m += ppw->pvecback[pba->index_bg_rho_cdm];
       }
       if ((ppt->has_source_delta_m == _TRUE_) || (ppt->has_source_theta_m == _TRUE_)) {
-        if (ppt->gauge == newtonian)
+        if (ppt->gauge == newtonian || pba->has_scf_cdm_coupling == _TRUE_)
           rho_plus_p_theta_m += ppw->pvecback[pba->index_bg_rho_cdm]*y[ppw->pv->index_pt_theta_cdm]; // contribution to [(rho+p)theta]_matter
         rho_plus_p_m += ppw->pvecback[pba->index_bg_rho_cdm];
       }
@@ -9228,11 +9232,25 @@ int perturbations_derivs(double tau,
         dy[pv->index_pt_theta_cdm] = - a_prime_over_a*y[pv->index_pt_theta_cdm] + metric_euler; /* cdm velocity */
       }
 
-      /** - ----> synchronous gauge: cdm density only (velocity set to zero by definition of the gauge) */
+            /** Jy- ----> synchronous gauge: cdm density (and velocity if Amendola coupling active) */
 
       if (ppt->gauge == synchronous) {
-        dy[pv->index_pt_delta_cdm] = -metric_continuity; /* cdm density */
+        if (pba->has_scf_cdm_coupling == _TRUE_) {
+          double phi_prime_bg = pvecback[pba->index_bg_phi_prime_scf];
+          double beta         = pba->scf_coupling_beta;
+          /* delta_cdm: includes coupling source -beta*(delta_phi' + delta_cdm*phi') */
+          dy[pv->index_pt_delta_cdm] = -(y[pv->index_pt_theta_cdm] + metric_continuity)
+            - beta * (y[pv->index_pt_phi_prime_scf]
+                      + y[pv->index_pt_delta_cdm] * phi_prime_bg);
+          /* theta_cdm: fifth-force term +beta*k^2*delta_phi */
+          dy[pv->index_pt_theta_cdm] = -a_prime_over_a * y[pv->index_pt_theta_cdm]
+            + beta * k2 * y[pv->index_pt_phi_scf];
+        }
+        else {
+          dy[pv->index_pt_delta_cdm] = -metric_continuity; /* cdm density */
+        }
       }
+
     }
 
     /** - ---> interacting dark radiation */
@@ -9399,10 +9417,17 @@ int perturbations_derivs(double tau,
       dy[pv->index_pt_phi_scf] = y[pv->index_pt_phi_prime_scf];
 
       /** - ----> Klein Gordon equation */
-
+      //Jy
       dy[pv->index_pt_phi_prime_scf] =  - 2.*a_prime_over_a*y[pv->index_pt_phi_prime_scf]
         - metric_continuity*pvecback[pba->index_bg_phi_prime_scf] //  metric_continuity = h'/2
         - (k2 + a2*pvecback[pba->index_bg_ddV_scf])*y[pv->index_pt_phi_scf]; //checked
+      if (pba->has_scf_cdm_coupling == _TRUE_) {
+        /* perturbed KG source: +beta*a^2*rho_cdm*delta_cdm */
+        dy[pv->index_pt_phi_prime_scf] +=
+          pba->scf_coupling_beta * a2 * pvecback[pba->index_bg_rho_cdm]
+          * y[pv->index_pt_delta_cdm];
+      }
+
 
     }
 

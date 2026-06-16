@@ -3481,6 +3481,18 @@ int input_read_parameters_species(struct file_content * pfc,
            pba->scf_M4,pba->scf_f,pba->scf_parameters_size);
      }
     }
+    /*Jy- Amendola SCF-CDM coupling */
+    {
+      int flag_beta = _FALSE_;
+      class_call(parser_read_double(pfc, "scf_coupling_beta",
+          &pba->scf_coupling_beta, &flag_beta, errmsg), errmsg, errmsg);
+      if (flag_beta == _FALSE_) pba->scf_coupling_beta = 0.;
+      pba->has_scf_cdm_coupling =
+          (pba->has_scf == _TRUE_ && pba->Omega0_cdm != 0. && pba->scf_coupling_beta != 0.)
+          ? _TRUE_ : _FALSE_;
+
+    }
+
 
     /* Complete set of parameters: budget filling will follow below */
 
