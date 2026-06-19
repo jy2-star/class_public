@@ -590,6 +590,31 @@ int input_shooting(struct file_content * pfc,
     }
   }
 
+  /* Auto-inject Omega_scf as a shooting target when scf_tuning_index >= 0 but the
+     user did not explicitly list Omega_scf in the parameter file (typical MCMC case).
+     index 5 corresponds to "Omega_scf" / "scf_shooting_parameter" in the target arrays. */
+  {
+    int scf_tuning_index_tmp = -1;
+    int flag_sti = _FALSE_;
+    int omega_scf_already_registered = _FALSE_;
+    int ii;
+    class_call(parser_read_int(pfc, "scf_tuning_index", &scf_tuning_index_tmp, &flag_sti, errmsg),
+               errmsg, errmsg);
+    if (flag_sti == _TRUE_ && scf_tuning_index_tmp >= 0) {
+      for (ii = 0; ii < unknown_parameters_size; ii++) {
+        if (target_indices[ii] == 5) { /* 5 = Omega_scf index */
+          omega_scf_already_registered = _TRUE_;
+          break;
+        }
+      }
+      if (omega_scf_already_registered == _FALSE_) {
+        target_indices[unknown_parameters_size] = 5; /* Omega_scf */
+        fzw.required_computation_stage = MAX(fzw.required_computation_stage, cs_background);
+        unknown_parameters_size++;
+      }
+    }
+  }
+
   /** In the case of unknown parameters, start shooting... */
   if (unknown_parameters_size > 0) {
 
@@ -1542,7 +1567,6 @@ int input_try_unknown_parameters(double * unknown_parameter,
 
       output[i] = Omega_today - target_Omega_scf;
 
-      
       break;
     }
     case Omega_ini_dcdm:
@@ -3448,8 +3472,16 @@ int input_read_parameters_species(struct file_content * pfc,
                  errmsg,
                  "Tuning index 'scf_tuning_index' (%d) is larger than the number of entries (%d) in 'scf_parameters'.",
                  pba->scf_tuning_index,pba->scf_parameters_size);
-      /* JY-scf_shooting_parameter already read above, just assign it to the array */
-      pba->scf_parameters[pba->scf_tuning_index] = pba->scf_shooting_parameter; 
+      /* Only update scf_parameters with the shooting value when scf_shooting_parameter was
+         explicitly present in the parser (flag_shoot=_TRUE_). When called from input_get_guess
+         the extended slot is empty, so flag_shoot=_FALSE_, and we must NOT overwrite the
+         user's original phi_ini (scf_parameters[1]) with the default 0.0. */
+      if (flag_shoot == _TRUE_) {
+        pba->scf_parameters[pba->scf_tuning_index] = pba->scf_shooting_parameter;
+        if (pba->scf_tuning_index == 1) {
+          pba->phi_ini_scf = pba->scf_shooting_parameter;
+        }
+      }
     }
 
         /* Extract scf_f from scf_parameters if 4 elements are provided (e.g., from Cobaya MCMC) */

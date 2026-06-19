@@ -2249,11 +2249,10 @@ int background_initial_conditions(
   }
     /* JY - assign - use last two entries for field ICs (works for any number of potential params) */
     if (pba->scf_parameters_size >= 3) {
-      /* phi_ini_scf is correctly set by input.c (0.5 on first call, shooting value later)
-         Only use scf_parameters[1] if it is non-zero (i.e. shooting has updated it) */
-      if (pba->scf_parameters[1] != 0.0) {
-        pba->phi_ini_scf = pba->scf_parameters[1];
-      }
+      /* scf_parameters[1] always holds the correct phi_ini:
+         - in normal runs: the user's initial value from the ini file
+         - during shooting: the value updated by input.c at line ~3477 with flag_shoot guard */
+      pba->phi_ini_scf = pba->scf_parameters[1];
       /* Always use phi_prime from scf_parameters[2] if available */
       pba->phi_prime_ini_scf = pba->scf_parameters[2];
       
